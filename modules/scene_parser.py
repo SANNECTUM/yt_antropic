@@ -132,6 +132,7 @@ class SceneBlock:
         visual_path: Optional[str] = None,
         effect: str = "ken_burns_in",
         custom_duration: Optional[float] = None,
+        prompt: Optional[str] = None,
     ):
         self.index = index
         self.title = title
@@ -141,6 +142,7 @@ class SceneBlock:
         self.visual_path = visual_path        # путь к выбранному файлу (jpg/mp4)
         self.effect = effect                  # ken_burns_in | ken_burns_out | fade | slide_left | slide_right | none
         self.custom_duration = custom_duration  # переопределённый тайминг пользователем
+        self.prompt = prompt or ""            # художественное описание / промпт для B-Roll
 
     @property
     def effective_duration(self) -> float:
@@ -156,6 +158,7 @@ class SceneBlock:
             "visual_path": self.visual_path,
             "effect": self.effect,
             "custom_duration": self.custom_duration,
+            "prompt": self.prompt,
         }
 
     @classmethod
@@ -169,6 +172,7 @@ class SceneBlock:
             visual_path=d.get("visual_path"),
             effect=d.get("effect", "ken_burns_in"),
             custom_duration=d.get("custom_duration"),
+            prompt=d.get("prompt", ""),
         )
 
 

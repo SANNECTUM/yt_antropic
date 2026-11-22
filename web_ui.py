@@ -381,7 +381,13 @@ with tab_stepwise:
 
                 if selected_af_path and selected_af_path.exists():
                     af_dur = get_audio_duration(selected_af_path)
-                    st.success(f"⏱️ **Точная длительность озвучки:** `{format_duration(af_dur)}` ({af_dur:.1f} сек)")
+                    if af_dur <= 0:
+                        words_cnt = len(script_for_scenes.split())
+                        est_sec = max(15.0, round(words_cnt / 2.2, 1))
+                        st.info(f"⏱️ **Расчётная длительность по тексту:** `~{format_duration(est_sec)}` ({words_cnt} слов). Для точной подгонки загрузите готовую озвучку слева.")
+                        af_dur = est_sec
+                    else:
+                        st.success(f"⏱️ **Точная длительность озвучки:** `{format_duration(af_dur)}` ({af_dur:.1f} сек)")
 
                     c_af_cfg1, c_af_cfg2 = st.columns([1.2, 1])
                     with c_af_cfg1:

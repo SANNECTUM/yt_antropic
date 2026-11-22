@@ -2,6 +2,7 @@ import os
 import re
 import json
 import math
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Callable
@@ -12,17 +13,37 @@ from modules.scene_parser import SceneBlock, save_scenes
 from modules.llm_client import GeminiClient
 
 def get_ffmpeg_exe() -> str:
-    """Возвращает путь к исполняемому файлу ffmpeg."""
-    return imageio_ffmpeg.get_ffmpeg_exe()
+    """Возвращает путь к исполняемому файлу ffmpeg (проверяет системный PATH и imageio)."""
+    ff = shutil.which("ffmpeg")
+    if ff:
+        return ff
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    return "ffmpeg"
 
 def get_audio_duration(audio_path: Path) -> float:
     """
-    Определяет точную длительность аудиофайла (в секундах) через FFmpeg.
+    Определяет точную длительность аудиофайла (в секундах).
     Работает с mp3, wav, m4a, ogg, aac и т.д.
     """
-    if not audio_path.exists():
+    if not audio_path.exists() or audio_path.stat().st_size == 0:
         return 0.0
 
+    # 1. ffprobe (быстрее и точнее всего)
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        try:
+            cmd = [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)]
+            res = subprocess.run(cmd, capture_output=True, text=True, errors="ignore")
+            val = float(res.stdout.strip())
+            if val > 0:
+                return val
+        except Exception:
+            pass
+
+    # 2. ffmpeg
     ffmpeg = get_ffmpeg_exe()
     cmd = [ffmpeg, "-i", str(audio_path), "-f", "null", "-"]
     try:
@@ -32,9 +53,32 @@ def get_audio_duration(audio_path: Path) -> float:
             hours = int(m.group(1))
             minutes = int(m.group(2))
             seconds = float(m.group(3))
-            return hours * 3600 + minutes * 60 + seconds
+            dur = hours * 3600 + minutes * 60 + seconds
+            if dur > 0:
+                return dur
     except Exception as e:
         print(f"[get_audio_duration] Ошибка при чтении длительности {audio_path}: {e}")
+
+    # 3. Fallback: mutagen (если установлен)
+    try:
+        import mutagen
+        mf = mutagen.File(str(audio_path))
+        if mf and mf.info and hasattr(mf.info, "length") and mf.info.length > 0:
+            return float(mf.info.length)
+    except Exception:
+        pass
+
+    # 4. Fallback: wave (для .wav)
+    try:
+        import wave
+        with wave.open(str(audio_path), 'rb') as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            if rate > 0:
+                return frames / float(rate)
+    except Exception:
+        pass
+
     return 0.0
 
 def format_duration(seconds: float) -> str:
@@ -97,12 +141,14 @@ class AudioSceneAligner:
         4. Создаёт точные B-Roll промпты под каждую реплику.
         """
         total_audio_sec = get_audio_duration(audio_path)
-        if total_audio_sec <= 0:
-            raise ValueError(f"Не удалось определить длительность аудиофайла: {audio_path}")
-
         cleaned_script = cls.clean_script_text(script_text)
         if not cleaned_script:
             cleaned_script = script_text.strip()
+
+        if total_audio_sec <= 0:
+            # Fallback: если аудиофайл пуст или не прочитался, оцениваем по объему слов
+            words_cnt = len(cleaned_script.split())
+            total_audio_sec = max(15.0, round(words_cnt / 2.2, 1))
 
         # Расчет целевого количества сцен (например: для 48 минут по 18 сек ~ 160 сцен)
         target_scene_duration = max(5.0, min(60.0, float(target_scene_duration)))
