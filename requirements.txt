@@ -26,5 +26,3 @@ beautifulsoup4>=4.12.0
 # Utilities & Logging
 loguru>=0.7.0
 rich>=13.0.0
-gradio-client>=1.0.0
-rembg>=2.0.50

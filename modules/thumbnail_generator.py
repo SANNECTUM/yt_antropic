@@ -55,8 +55,6 @@ def create_thumbnail_style_1(
     - Плавный черный градиент снизу
     - Яркий неоновый алый + белый текст Arial Black
     """
-    import rembg
-
     img = Image.open(input_image_path).convert("RGBA")
     target_w, target_h = target_size
     img_ratio = img.width / img.height
@@ -74,8 +72,12 @@ def create_thumbnail_style_1(
 
     img = img.resize(target_size, Image.Resampling.LANCZOS)
 
-    session = rembg.new_session("u2netp")
-    foreground = rembg.remove(img, session=session)
+    try:
+        import rembg
+        session = rembg.new_session("u2netp")
+        foreground = rembg.remove(img, session=session)
+    except (ImportError, Exception):
+        foreground = img
 
     bg_gray = ImageOps.grayscale(img.convert("RGB")).convert("RGB")
     bg_dark = ImageEnhance.Brightness(bg_gray).enhance(0.42)
@@ -243,8 +245,6 @@ def create_thumbnail_style_3(
     - Справа: предмет 2
     - По центру: вырезанный силуэт героя с глубокой тенью
     """
-    import rembg
-
     target_w, target_h = target_size
 
     # 1. Рассчитываем верхнюю плашку под текст
@@ -304,8 +304,12 @@ def create_thumbnail_style_3(
 
     # 3. Сегментация лица героя
     face_raw = Image.open(face_img_path).convert("RGBA")
-    session = rembg.new_session("u2netp")
-    fg_face = rembg.remove(face_raw, session=session)
+    try:
+        import rembg
+        session = rembg.new_session("u2netp")
+        fg_face = rembg.remove(face_raw, session=session)
+    except (ImportError, Exception):
+        fg_face = face_raw
 
     face_target_h = int(bg_h * 1.28)
     face_scale = face_target_h / fg_face.height

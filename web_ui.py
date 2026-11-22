@@ -248,7 +248,7 @@ with tab_autopilot:
             with open(final_video, "rb") as vf:
                 st.download_button(
                     "⬇️ Скачать готовое видео (MP4)",
-                    data=vf.read(),
+                    data=vf,
                     file_name=f"{pm.slug}_final.mp4",
                     mime="video/mp4",
                     type="primary",
@@ -312,7 +312,7 @@ with tab_stepwise:
                 with open(final_v_top, "rb") as f_top:
                     st.download_button(
                         "📥 СКАЧАТЬ ГОТОВОЕ ВИДЕО (MP4)",
-                        data=f_top.read(),
+                        data=f_top,
                         file_name=f"{pm.slug}_final.mp4",
                         mime="video/mp4",
                         type="primary",
@@ -1210,7 +1210,7 @@ with tab_stepwise:
         st.subheader("🎉 Финальное видео готово!")
         st.video(str(final_sw))
         with open(final_sw, "rb") as fvf:
-            st.download_button("⬇️ Скачать финальное видео (MP4)", data=fvf.read(),
+            st.download_button("⬇️ Скачать финальное видео (MP4)", data=fvf,
                                file_name=f"{pm.slug}_final.mp4", mime="video/mp4",
                                type="primary", use_container_width=True, key="sw_dl_final")
 
@@ -2525,7 +2525,7 @@ with tab_files:
                 with open(f_video_tab, "rb") as vf_tab:
                     st.download_button(
                         f"📥 СКАЧАТЬ ФИНАЛЬНОЕ ВИДЕО ({v_size_mb:.1f} MB)",
-                        data=vf_tab.read(),
+                        data=vf_tab,
                         file_name=f"{pm.slug}_final.mp4",
                         mime="video/mp4",
                         type="primary",
