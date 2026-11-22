@@ -78,12 +78,31 @@ with st.sidebar:
 
     st.divider()
     st.header("⚡ Google Gemini API")
+    current_key = config.get_gemini_api_key()
+    if current_key:
+        config.GEMINI_API_KEY = current_key
+        os.environ["GEMINI_API_KEY"] = current_key
+
     has_key = bool(config.GEMINI_API_KEY)
     if has_key:
-        st.success("🟢 API ключ найден в .env")
+        st.success("🟢 API ключ активен")
     else:
-        st.error("🔴 GEMINI_API_KEY не задан в .env")
-        st.caption("Получите бесплатный ключ на [aistudio.google.com](https://aistudio.google.com/) и добавьте его в файл `.env`")
+        st.error("🔴 GEMINI_API_KEY не найден")
+        st.caption("Введите ключ ниже или укажите в Secrets на Streamlit Cloud:")
+
+    key_input = st.text_input(
+        "🔑 Gemini API Ключ:",
+        value=config.GEMINI_API_KEY or st.session_state.get("user_gemini_key", ""),
+        type="password",
+        placeholder="AIzaSy...",
+        key="gemini_key_input_sidebar",
+        help="Ключ можно ввести прямо здесь — он сохранится для вашей сессии"
+    )
+    if key_input and key_input.strip() != config.GEMINI_API_KEY:
+        config.GEMINI_API_KEY = key_input.strip()
+        os.environ["GEMINI_API_KEY"] = key_input.strip()
+        st.session_state["user_gemini_key"] = key_input.strip()
+        st.rerun()
         
     available_models = [
         "gemini-3.5-flash-lite",
