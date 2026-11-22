@@ -189,18 +189,32 @@ class TimelineBuilder:
             if m:
                 video_dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
+            # Быстрое сведение без лишнего перекодирования видеоряда
             cmd = [
                 self.ffmpeg, "-y",
                 "-i", str(videotrack),
                 "-i", str(audio_path),
-                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:v", "copy",
                 "-c:a", "aac", "-b:a", "192k",
                 "-map", "0:v:0", "-map", "1:a:0",
-                "-pix_fmt", "yuv420p",
+                "-shortest",
+                str(output),
             ]
-            if video_dur > 0:
-                cmd += ["-t", str(video_dur)]
-            cmd.append(str(output))
+            res = subprocess.run(cmd, capture_output=True, text=True, errors="ignore")
+            # Если copy не сработал (например, разные форматы), делаем надежное кодирование
+            if not output.exists() or output.stat().st_size < 10000:
+                cmd_fallback = [
+                    self.ffmpeg, "-y",
+                    "-i", str(videotrack),
+                    "-i", str(audio_path),
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-pix_fmt", "yuv420p",
+                    "-shortest",
+                    str(output),
+                ]
+                subprocess.run(cmd_fallback, capture_output=True, errors="ignore")
         else:
             # Без аудио — добавляем тихую дорожку
             cmd = [

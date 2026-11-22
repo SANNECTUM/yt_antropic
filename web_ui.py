@@ -46,6 +46,9 @@ import modules.pexels_downloader
 importlib.reload(modules.pexels_downloader)
 from modules.pexels_downloader import PexelsDownloader, detect_local_proxy
 from modules.thumbnail_generator import create_thumbnail_style_1, create_thumbnail_style_2_collage, create_thumbnail_style_3
+import modules.audio_aligner
+importlib.reload(modules.audio_aligner)
+from modules.audio_aligner import AudioSceneAligner, get_audio_duration, format_duration
 
 st.set_page_config(
     page_title="YouTube Studio Assistant (Gemini)",
@@ -297,6 +300,26 @@ with tab_stepwise:
     col_s2.metric("Шаг 2: Монтаж", "✅ Готово" if step2_done else "⏳ Нужно выполнить")
     col_s3.metric("Шаг 3: Озвучка", "✅ Готово" if step3_done else "⏳ Нужно выполнить")
 
+    # Быстрый блок скачивания готового видео в самом верху (если видео уже смонтировано)
+    final_v_top = pm.project_dir / "final_video.mp4"
+    if final_v_top.exists() and final_v_top.stat().st_size > 10000:
+        with st.container(border=True):
+            col_fvt1, col_fvt2 = st.columns([2, 1.2])
+            with col_fvt1:
+                st.markdown("### 🎉 Готовое видео доступно для скачивания!")
+                st.caption(f"Файл: `{pm.slug}_final.mp4` • Хронометраж: {format_duration(get_audio_duration(final_v_top))} • Размер: {final_v_top.stat().st_size // (1024*1024)} MB")
+            with col_fvt2:
+                with open(final_v_top, "rb") as f_top:
+                    st.download_button(
+                        "📥 СКАЧАТЬ ГОТОВОЕ ВИДЕО (MP4)",
+                        data=f_top.read(),
+                        file_name=f"{pm.slug}_final.mp4",
+                        mime="video/mp4",
+                        type="primary",
+                        use_container_width=True,
+                        key="sw_dl_final_top_banner"
+                    )
+
     st.divider()
 
     # ================================================================
@@ -309,63 +332,167 @@ with tab_stepwise:
         else:
             st.info(f"Сценарий найден: **{len(script_for_scenes.split())} слов**.")
             topic_for_scenes = pm.load_meta().get("topic", "")
-            col_sp1, col_sp2 = st.columns([2, 1])
-            with col_sp1:
-                parse_strategy_label = st.radio(
-                    "Режим нарезки:",
-                    [
-                        "⏱️ Каждые 30 секунд (рекомендуется для стоковых видео Pexels)",
-                        "📑 По главам / актам сценария (авто)",
-                        "📄 По объему текста (слов на сцену)"
-                    ],
-                    index=0,
-                    key="sw_strat_choice"
-                )
-            with col_sp2:
-                if "30 секунд" in parse_strategy_label:
-                    step_sec_sw = st.selectbox("Интервал смены видео:", [30, 15, 20, 45, 60], index=0, format_func=lambda x: f"{x} сек")
-                    words_per_scene_sw = 200
-                elif "объему" in parse_strategy_label:
-                    words_per_scene_sw = st.number_input("Слов/сцена (абзацное деление)", 100, 500, 200, 50, key="sw_wps")
-                    step_sec_sw = 30
-                else:
-                    words_per_scene_sw = 200
-                    step_sec_sw = 30
 
-            col_parse_act1, col_parse_act2 = st.columns([1, 1])
-            with col_parse_act1:
-                btn_parse = st.button("✂️ Нарезать сценарий на сцены", type="primary", key="sw_btn_parse", use_container_width=True)
-            with col_parse_act2:
-                has_prompts_file = (pm.project_dir / "prompts.md").exists()
-                btn_sync_from_tab2 = st.button(
-                    "🔄 Загрузить кадры из Раздела 2 (Промпты и Визуал)",
-                    disabled=not has_prompts_file,
-                    help="Импортирует готовые 30-секундные кадры с подробными художественными описаниями из prompts.md",
-                    use_container_width=True,
-                    key="sw_sync_prompts_btn"
+            # ============================================================
+            # 🎙️ РЕЖИМ 1: AUDIO-FIRST (РАСКАДРОВКА ПОД ГОТОВУЮ ОЗВУЧКУ)
+            # ============================================================
+            with st.container(border=True):
+                st.markdown("### 🎙️ Режим 1: Раскадровка под готовую озвучку (Audio-First)")
+                st.caption(
+                    "Загрузите готовый MP3/WAV файл из **Google AI Studio** — система точно измерит хронометраж диктора "
+                    "и сформирует кадры так, чтобы **видеоряд секунда-в-секунду совпадал с речью диктора без рассинхрона!**"
                 )
 
-            if btn_parse:
-                parser = SceneParser(topic=topic_for_scenes)
-                if "30 секунд" in parse_strategy_label:
-                    scenes_parsed = parser.parse(script_for_scenes, strategy="time_slices", interval_seconds=step_sec_sw)
-                elif "объему" in parse_strategy_label:
-                    scenes_parsed = parser.parse(script_for_scenes, strategy="paragraphs", words_per_scene=words_per_scene_sw)
-                else:
-                    scenes_parsed = parser.parse(script_for_scenes, strategy="auto")
-                save_scenes(scenes_parsed, pm.project_dir)
-                tl_builder.save_timeline(scenes_parsed)
-                st.success(f"✅ Нарезано **{len(scenes_parsed)} сцен**! Переходите к Шагу 2.")
-                st.rerun()
+                # Поиск имеющихся аудиофайлов в проекте
+                available_audio_files = []
+                for ext in ("*.mp3", "*.wav", "*.m4a", "*.ogg"):
+                    available_audio_files.extend(list(pm.audio_dir.glob(ext)))
+                    available_audio_files.extend(list(pm.project_dir.glob(ext)))
+                # Убираем дубликаты
+                available_audio_files = list({f.resolve(): f for f in available_audio_files}.values())
 
-            if btn_sync_from_tab2:
-                with st.spinner("Загрузка раскадровки и художественных промптов из Раздела 2..."):
-                    synced_scenes = PexelsDownloader.sync_prompts_to_timeline(pm.project_dir)
-                    if synced_scenes:
-                        st.success(f"✅ Успешно загружено **{len(synced_scenes)} кадров** с подробными описаниями из Раздела 2!")
-                        st.rerun()
+                c_af_up, c_af_pick = st.columns([1.5, 1])
+                with c_af_up:
+                    af_uploaded = st.file_uploader(
+                        "📥 Загрузить MP3/WAV озвучку из Google AI Studio:",
+                        type=["mp3", "wav", "m4a", "ogg"],
+                        key="af_file_uploader_step1"
+                    )
+                    if af_uploaded:
+                        saved_af = pm.audio_dir / af_uploaded.name
+                        saved_af.write_bytes(af_uploaded.getvalue())
+                        st.success(f"Файл `{saved_af.name}` сохранён в проект!")
+                        if saved_af not in available_audio_files:
+                            available_audio_files.insert(0, saved_af)
+
+                selected_af_path = None
+                with c_af_pick:
+                    if available_audio_files:
+                        af_names = [f.name for f in available_audio_files]
+                        chosen_af_name = st.selectbox(
+                            "Выбрать активную озвучку:",
+                            af_names,
+                            index=0,
+                            key="af_chosen_audio_select"
+                        )
+                        selected_af_path = available_audio_files[af_names.index(chosen_af_name)]
                     else:
-                        st.error("Не удалось прочитать кадры из prompts.md. Убедитесь, что раскадровка создана в Разделе 2.")
+                        st.info("В проекте пока нет аудиофайлов. Перетащите файл слева.")
+
+                if selected_af_path and selected_af_path.exists():
+                    af_dur = get_audio_duration(selected_af_path)
+                    st.success(f"⏱️ **Точная длительность озвучки:** `{format_duration(af_dur)}` ({af_dur:.1f} сек)")
+
+                    c_af_cfg1, c_af_cfg2 = st.columns([1.2, 1])
+                    with c_af_cfg1:
+                        af_target_sec = st.slider(
+                            "Желаемая длительность одного кадра:",
+                            min_value=10,
+                            max_value=35,
+                            value=18,
+                            step=1,
+                            format="%d сек",
+                            key="af_target_sec_slider",
+                            help="Каждые 15-20 секунд видеоряд будет сменяться под тему речи диктора"
+                        )
+                        af_calc_scenes = max(1, round(af_dur / af_target_sec))
+                        st.caption(f"Будет создано ровно **{af_calc_scenes} кадров** под хронометраж `{format_duration(af_dur)}`")
+
+                    with c_af_cfg2:
+                        af_use_gemini = st.checkbox(
+                            "✨ Точные B-Roll теги под каждую реплику (Gemini)",
+                            value=True,
+                            key="af_use_gemini_chk",
+                            help="Gemini сопоставит текст каждой реплики с точным английским B-roll запросом для Pexels"
+                        )
+
+                    if st.button("🎯 СФОРМИРОВАТЬ РАСКАДРОВКУ С ТОЧНЫМИ ТАЙМКОДАМИ (100% СОВПАДЕНИЕ ЗВУКА И ВИДЕО)", type="primary", use_container_width=True, key="btn_run_audio_align"):
+                        p_bar_af = st.progress(0, text="Инициализация выравнивания сценария под аудио...")
+                        status_af = st.empty()
+
+                        def on_af_prog(pct, msg):
+                            p_bar_af.progress(int(pct * 100), text=msg)
+                            status_af.info(f"⚙️ {msg}")
+
+                        try:
+                            aligned_scenes = AudioSceneAligner.align_script_to_audio(
+                                script_text=script_for_scenes,
+                                audio_path=selected_af_path,
+                                target_scene_duration=float(af_target_sec),
+                                use_gemini=af_use_gemini,
+                                style_context=topic_for_scenes,
+                                progress_callback=on_af_prog
+                            )
+                            AudioSceneAligner.apply_alignment_to_project(pm.project_dir, aligned_scenes, selected_af_path)
+                            status_af.empty()
+                            p_bar_af.progress(100, text="✅ Раскадровка успешно создана!")
+                            st.balloons()
+                            st.success(f"🎉 Готово! Создано **{len(aligned_scenes)} сцен**. Суммарный хронометраж видеоряда строго равен звуку: **{format_duration(af_dur)}**.")
+                            st.rerun()
+                        except Exception as afe:
+                            st.error(f"Ошибка при синхронизации: {afe}")
+
+            # ============================================================
+            # РЕЖИМ 2: КЛАССИЧЕСКАЯ НАРЕЗКА (БЕЗ ГОТОВОЙ ОЗВУЧКИ)
+            # ============================================================
+            with st.expander("⚙️ Режим 2: Альтернативная нарезка (без готового аудиофайла)", expanded=False):
+                col_sp1, col_sp2 = st.columns([2, 1])
+                with col_sp1:
+                    parse_strategy_label = st.radio(
+                        "Стратегия нарезки текста:",
+                        [
+                            "⏱️ Каждые 30 секунд (для стоковых видео Pexels)",
+                            "📑 По главам / актам сценария (авто)",
+                            "📄 По объему текста (слов на сцену)"
+                        ],
+                        index=0,
+                        key="sw_strat_choice"
+                    )
+                with col_sp2:
+                    if "30 секунд" in parse_strategy_label:
+                        step_sec_sw = st.selectbox("Интервал смены видео:", [30, 15, 20, 45, 60], index=0, format_func=lambda x: f"{x} сек")
+                        words_per_scene_sw = 200
+                    elif "объему" in parse_strategy_label:
+                        words_per_scene_sw = st.number_input("Слов/сцена (абзацное деление)", 100, 500, 200, 50, key="sw_wps")
+                        step_sec_sw = 30
+                    else:
+                        words_per_scene_sw = 200
+                        step_sec_sw = 30
+
+                col_parse_act1, col_parse_act2 = st.columns([1, 1])
+                with col_parse_act1:
+                    btn_parse = st.button("✂️ Нарезать сценарий (по времени текста)", type="secondary", key="sw_btn_parse", use_container_width=True)
+                with col_parse_act2:
+                    has_prompts_file = (pm.project_dir / "prompts.md").exists()
+                    btn_sync_from_tab2 = st.button(
+                        "🔄 Загрузить кадры из Раздела 2 (Промпты и Визуал)",
+                        disabled=not has_prompts_file,
+                        help="Импортирует готовые 30-секундные кадры с подробными художественными описаниями из prompts.md",
+                        use_container_width=True,
+                        key="sw_sync_prompts_btn"
+                    )
+
+                if btn_parse:
+                    parser = SceneParser(topic=topic_for_scenes)
+                    if "30 секунд" in parse_strategy_label:
+                        scenes_parsed = parser.parse(script_for_scenes, strategy="time_slices", interval_seconds=step_sec_sw)
+                    elif "объему" in parse_strategy_label:
+                        scenes_parsed = parser.parse(script_for_scenes, strategy="paragraphs", words_per_scene=words_per_scene_sw)
+                    else:
+                        scenes_parsed = parser.parse(script_for_scenes, strategy="auto")
+                    save_scenes(scenes_parsed, pm.project_dir)
+                    tl_builder.save_timeline(scenes_parsed)
+                    st.success(f"✅ Нарезано **{len(scenes_parsed)} сцен**! Переходите к Шагу 2.")
+                    st.rerun()
+
+                if btn_sync_from_tab2:
+                    with st.spinner("Загрузка раскадровки и художественных промптов из Раздела 2..."):
+                        synced_scenes = PexelsDownloader.sync_prompts_to_timeline(pm.project_dir)
+                        if synced_scenes:
+                            st.success(f"✅ Успешно загружено **{len(synced_scenes)} кадров** с подробными описаниями из Раздела 2!")
+                            st.rerun()
+                        else:
+                            st.error("Не удалось прочитать кадры из prompts.md. Убедитесь, что раскадровка создана в Разделе 2.")
 
             # Превью уже нарезанных сцен
             if step1_done:
@@ -1030,19 +1157,24 @@ with tab_stepwise:
                             except Exception as e:
                                 st.error(f"Ошибка TTS: {e}")
 
-                # Проверяем, есть ли уже готовый аудиофайл
-                existing_audio_sw = pm.get_audio_path("voiceover_full.mp3")
-                if existing_audio_sw.exists() and not audio_path_sw:
-                    st.info(f"✅ Готовый аудиофайл: `{existing_audio_sw.name}` ({existing_audio_sw.stat().st_size // 1024} KB). Нажмите «Смонтировать» ниже.")
-                    audio_path_sw = existing_audio_sw
+                # Ищем любые доступные аудиофайлы проекта (включая загруженные в Шаге 1)
+                all_found_audios = list(pm.audio_dir.glob("*.mp3")) + list(pm.audio_dir.glob("*.wav")) + list(pm.audio_dir.glob("*.m4a"))
+                if all_found_audios and not audio_path_sw:
+                    audio_path_sw = all_found_audios[0]
+                    st.info(f"✅ Используется активный аудиофайл: `{audio_path_sw.name}` ({format_duration(get_audio_duration(audio_path_sw))}). Нажмите «Смонтировать» ниже.")
 
             else:
-                uploaded_audio_sw = st.file_uploader("Загрузите MP3 файл озвучки:", type=["mp3", "wav", "ogg"], key="sw_up_audio")
+                uploaded_audio_sw = st.file_uploader("Загрузите MP3/WAV файл озвучки из Google AI Studio:", type=["mp3", "wav", "m4a", "ogg"], key="sw_up_audio")
                 if uploaded_audio_sw:
                     audio_save_sw = pm.get_audio_path(uploaded_audio_sw.name)
                     audio_save_sw.write_bytes(uploaded_audio_sw.getvalue())
                     audio_path_sw = audio_save_sw
-                    st.success(f"Файл загружен: {audio_save_sw.name}")
+                    st.success(f"Файл загружен: {audio_save_sw.name} ({format_duration(get_audio_duration(audio_save_sw))})")
+                else:
+                    all_found_audios = list(pm.audio_dir.glob("*.mp3")) + list(pm.audio_dir.glob("*.wav")) + list(pm.audio_dir.glob("*.m4a"))
+                    if all_found_audios and not audio_path_sw:
+                        audio_path_sw = all_found_audios[0]
+                        st.info(f"✅ Используется активный аудиофайл: `{audio_path_sw.name}` ({format_duration(get_audio_duration(audio_path_sw))}).")
 
             # Финальный рендер
             st.divider()
@@ -2366,9 +2498,58 @@ with tab_thumbnails:
 
 # Вкладка 5: Файлы проекта
 with tab_files:
-    st.subheader(f"5. 📂 Файлы проекта: {pm.slug}")
-    st.write(f"Путь на диске: `{pm.project_dir.resolve()}`")
-    
+    st.subheader(f"5. 📂 Файлы и скачивание готового релиза: {pm.slug}")
+    st.write(f"Папка на диске: `{pm.project_dir.resolve()}`")
+
+    # Быстрый блок скачивания готового видео (1 файл)
+    f_video_tab = pm.project_dir / "final_video.mp4"
+    if f_video_tab.exists() and f_video_tab.stat().st_size > 10000:
+        with st.container(border=True):
+            st.markdown("### 🎬 Главный релизный файл (Финальное видео):")
+            c_fv_c1, c_fv_c2 = st.columns([1.5, 1])
+            with c_fv_c1:
+                st.video(str(f_video_tab))
+            with c_fv_c2:
+                v_size_mb = f_video_tab.stat().st_size / (1024 * 1024)
+                v_dur_str = format_duration(get_audio_duration(f_video_tab))
+                st.markdown(f"**Название:** `{pm.slug}_final.mp4`")
+                st.markdown(f"**Хронометраж:** `{v_dur_str}`")
+                st.markdown(f"**Размер файла:** `{v_size_mb:.1f} MB`")
+                st.write("")
+                with open(f_video_tab, "rb") as vf_tab:
+                    st.download_button(
+                        f"📥 СКАЧАТЬ ФИНАЛЬНОЕ ВИДЕО ({v_size_mb:.1f} MB)",
+                        data=vf_tab.read(),
+                        file_name=f"{pm.slug}_final.mp4",
+                        mime="video/mp4",
+                        type="primary",
+                        use_container_width=True,
+                        key="tab_files_dl_final_video"
+                    )
+
+    # Скачивание всего проекта единым ZIP-архивом
+    with st.expander("📦 Скачать весь проект в 1 ZIP-архив (видео, аудио, сценарий, промпты)", expanded=False):
+        import io
+        import zipfile
+        if st.button("📦 Сформировать ZIP-архив проекта", key="btn_create_project_zip"):
+            with st.spinner("Упаковка файлов проекта в ZIP..."):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for f in pm.project_dir.rglob("*"):
+                        if f.is_file() and not f.name.endswith(".zip"):
+                            zf.write(f, arcname=f.relative_to(pm.project_dir))
+                zip_buffer.seek(0)
+                zip_bytes = zip_buffer.getvalue()
+                st.download_button(
+                    label=f"⬇️ Скачать архив `{pm.slug}_project.zip` ({len(zip_bytes)//1024} KB)",
+                    data=zip_bytes,
+                    file_name=f"{pm.slug}_project.zip",
+                    mime="application/zip",
+                    key="btn_dl_project_zip"
+                )
+
+    st.divider()
+    st.markdown("#### Список всех файлов проекта на сервере:")
     files = list(pm.project_dir.rglob("*"))
     file_data = []
     for f in files:
