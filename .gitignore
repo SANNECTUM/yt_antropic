@@ -1,0 +1,49 @@
+# Python & virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.zip
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Caches
+.cache/
+.pytest_cache/
+
+# Scratch & temporary test artifacts
+scratch/
+test_*
+step_*.txt
+recovered_*.txt
+task_*.txt
+original_prompts_*.txt
+
+# Project generated media (heavy video/audio/image files)
+projects/**/visuals/
+projects/**/audio/
+projects/**/video/
+projects/**/cover/
+projects/**/thumbnails/
+projects/**/.thumbs/
+projects/**/*.mp4
+projects/**/*.mp3
+projects/**/*.wav
+projects/**/*.jpg
+projects/**/*.jpeg
+projects/**/*.png
+projects/**/*.webp
