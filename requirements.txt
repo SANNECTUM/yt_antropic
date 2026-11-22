@@ -5,6 +5,7 @@ streamlit>=1.40.0
 google-genai>=0.1.0
 anthropic>=0.40.0
 python-dotenv>=1.0.0
+gemini-webapi>=2.0.0
 
 # TTS (Voiceover generation)
 edge-tts>=7.3.1
@@ -13,6 +14,7 @@ edge-tts>=7.3.1
 moviepy>=2.0.0
 imageio-ffmpeg>=0.5.0
 pillow>=10.0.0
+numpy>=1.24.0
 
 # Web Scraping & Networking (for image search and downloads)
 curl-cffi>=0.7.0
@@ -20,3 +22,9 @@ requests>=2.31.0
 httpx>=0.27.0
 trafilatura>=2.3.0
 beautifulsoup4>=4.12.0
+
+# Utilities & Logging
+loguru>=0.7.0
+rich>=13.0.0
+gradio-client>=1.0.0
+rembg>=2.0.50

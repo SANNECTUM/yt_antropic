@@ -12,7 +12,17 @@ import socket
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 from curl_cffi import requests
-from loguru import logger
+try:
+    from loguru import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger("pexels_downloader")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("[%(levelname)s] %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 from modules.llm_client import GeminiClient
 
