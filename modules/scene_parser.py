@@ -119,6 +119,63 @@ def build_ai_image_prompt(scene: "SceneBlock", style_name: str = DEFAULT_STYLE_N
     return pos
 
 
+
+def resolve_visual_path(path_str: Optional[str], project_dir: Path) -> Optional[Path]:
+    """
+    Универсально находит файл кадра (видео/фото) на любой ОС (Windows / Linux),
+    даже если в JSON сохранён абсолютный путь Windows (C:\\Users\\...) или пути с обратными слэшами.
+    """
+    if not path_str:
+        return None
+
+    norm_str = str(path_str).replace("\\", "/").strip()
+    if not norm_str:
+        return None
+
+    # 1. Прямой путь
+    try:
+        p = Path(norm_str)
+        if p.exists() and p.is_file():
+            return p
+    except Exception:
+        pass
+
+    # 2. Относительно корня проекта
+    try:
+        p_proj = project_dir / norm_str
+        if p_proj.exists() and p_proj.is_file():
+            return p_proj
+    except Exception:
+        pass
+
+    # 3. В папке visuals/ текущего проекта по имени файла
+    try:
+        fname = Path(norm_str).name
+        if fname:
+            p_vis = project_dir / "visuals" / fname
+            if p_vis.exists() and p_vis.is_file():
+                return p_vis
+    except Exception:
+        pass
+
+    # 4. Если путь содержит 'projects/<slug>/...'
+    try:
+        parts = Path(norm_str).parts
+        if "projects" in parts:
+            idx = parts.index("projects")
+            rel_sub = Path(*parts[idx:])
+            if rel_sub.exists() and rel_sub.is_file():
+                return rel_sub
+            if project_dir.parent and project_dir.parent.parent:
+                parent_base = project_dir.parent.parent / rel_sub
+                if parent_base.exists() and parent_base.is_file():
+                    return parent_base
+    except Exception:
+        pass
+
+    return None
+
+
 class SceneBlock:
     """Одна сцена сценария."""
 
@@ -143,6 +200,9 @@ class SceneBlock:
         self.effect = effect                  # ken_burns_in | ken_burns_out | fade | slide_left | slide_right | none
         self.custom_duration = custom_duration  # переопределённый тайминг пользователем
         self.prompt = prompt or ""            # художественное описание / промпт для B-Roll
+
+    def get_resolved_visual_path(self, project_dir: Path) -> Optional[Path]:
+        return resolve_visual_path(self.visual_path, project_dir)
 
     @property
     def effective_duration(self) -> float:

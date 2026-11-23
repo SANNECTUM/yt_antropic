@@ -32,7 +32,7 @@ from modules.pipeline_runner import VideoPipelineRunner
 import modules.scene_parser
 importlib.reload(modules.scene_parser)
 from modules.scene_parser import (
-    SceneParser, SceneBlock, save_scenes, load_scenes,
+    SceneParser, SceneBlock, save_scenes, load_scenes, resolve_visual_path,
     build_ai_image_prompt, craft_smart_ai_prompt,
     SD_STYLE_PRESETS, DEFAULT_STYLE_NAME
 )
@@ -348,8 +348,9 @@ with tab_stepwise:
                 for ext in ("*.mp3", "*.wav", "*.m4a", "*.ogg"):
                     available_audio_files.extend(list(pm.audio_dir.glob(ext)))
                     available_audio_files.extend(list(pm.project_dir.glob(ext)))
-                # Убираем дубликаты
+                # Убираем дубликаты и сортируем по длительности (самые длинные сверху)
                 available_audio_files = list({f.resolve(): f for f in available_audio_files}.values())
+                available_audio_files.sort(key=lambda p: (get_audio_duration(p), p.stat().st_size), reverse=True)
 
                 c_af_up, c_af_pick = st.columns([1.5, 1])
                 with c_af_up:
@@ -364,15 +365,22 @@ with tab_stepwise:
                         st.success(f"Файл `{saved_af.name}` сохранён в проект!")
                         if saved_af not in available_audio_files:
                             available_audio_files.insert(0, saved_af)
+                        m = pm.load_meta()
+                        m["active_audio"] = saved_af.name
+                        pm.save_meta(m)
 
                 selected_af_path = None
                 with c_af_pick:
                     if available_audio_files:
                         af_names = [f.name for f in available_audio_files]
+                        meta_saved_audio = pm.load_meta().get("active_audio")
+                        default_af_idx = 0
+                        if meta_saved_audio and meta_saved_audio in af_names:
+                            default_af_idx = af_names.index(meta_saved_audio)
                         chosen_af_name = st.selectbox(
                             "Выбрать активную озвучку:",
                             af_names,
-                            index=0,
+                            index=default_af_idx,
                             key="af_chosen_audio_select"
                         )
                         selected_af_path = available_audio_files[af_names.index(chosen_af_name)]
@@ -656,8 +664,9 @@ with tab_stepwise:
 
                     for idx, s in enumerate(scenes_sw):
                         dest_file = pm.visuals_dir / f"scene_{s.index:03d}.mp4"
+                        rel_path = f"visuals/{dest_file.name}"
                         if dest_file.exists() and not overwrite_existing:
-                            s.visual_path = str(dest_file)
+                            s.visual_path = rel_path
                             success_count += 1
                             p_bar.progress(int((idx + 1) / total_sc * 100), text=f"Сцена {s.index}/{total_sc}: видео уже есть ({dest_file.name})")
                             continue
@@ -677,7 +686,7 @@ with tab_stepwise:
                             p_bar.progress(int((idx + 1) / total_sc * 100), text=f"Сцена {s.index}/{total_sc}: скачивание первого видео (1080p MP4)...")
                             ok = px_downloader.download_video_file(top_vid["download_url"], dest_file)
                             if ok:
-                                s.visual_path = str(dest_file)
+                                s.visual_path = rel_path
                                 success_count += 1
                         else:
                             import logging
@@ -1017,8 +1026,8 @@ with tab_stepwise:
                     with right_col:
                         # Превью выбранного кадра
                         st.caption("🎬 Текущий кадр сцены:")
-                        if s.visual_path and Path(s.visual_path).exists():
-                            vp = Path(s.visual_path)
+                        vp = resolve_visual_path(s.visual_path, pm.project_dir)
+                        if vp and vp.exists():
                             if vp.suffix.lower() == ".mp4":
                                 st.video(str(vp))
                             else:
@@ -1059,11 +1068,11 @@ with tab_stepwise:
 
             # Кнопка рендера видеоряда
             st.divider()
-            scenes_ready = [s for s in scenes_sw if s.visual_path and Path(s.visual_path).exists()]
-            scenes_missing = [s for s in scenes_sw if not s.visual_path or not Path(s.visual_path).exists()]
+            scenes_ready = [s for s in scenes_sw if resolve_visual_path(s.visual_path, pm.project_dir)]
+            scenes_missing = [s for s in scenes_sw if not resolve_visual_path(s.visual_path, pm.project_dir)]
 
             if scenes_missing:
-                st.warning(f"⚠️ Не выбраны кадры для {len(scenes_missing)} сцен: {', '.join([f'#{s.index}' for s in scenes_missing])}. Эти сцены будут пропущены.")
+                st.warning(f"⚠️ Не скачаны видео для {len(scenes_missing)} сцен: {', '.join([f'#{s.index}' for s in scenes_missing[:12]])}{'...' if len(scenes_missing)>12 else ''}. При рендере эти сцены будут автоматически заполнены доступными кадрами, либо нажмите «🚀 3. АВТОПИЛОТ» выше для полной загрузки всех стоков!")
 
             if scenes_ready:
                 col_rb1, col_rb2 = st.columns([2, 1])
@@ -1163,24 +1172,33 @@ with tab_stepwise:
                             except Exception as e:
                                 st.error(f"Ошибка TTS: {e}")
 
-                # Ищем любые доступные аудиофайлы проекта (включая загруженные в Шаге 1)
-                all_found_audios = list(pm.audio_dir.glob("*.mp3")) + list(pm.audio_dir.glob("*.wav")) + list(pm.audio_dir.glob("*.m4a"))
-                if all_found_audios and not audio_path_sw:
-                    audio_path_sw = all_found_audios[0]
-                    st.info(f"✅ Используется активный аудиофайл: `{audio_path_sw.name}` ({format_duration(get_audio_duration(audio_path_sw))}). Нажмите «Смонтировать» ниже.")
+            # Ищем все доступные аудиофайлы проекта (включая загруженные в Шаге 1)
+            all_found_audios = list(pm.audio_dir.glob("*.mp3")) + list(pm.audio_dir.glob("*.wav")) + list(pm.audio_dir.glob("*.m4a"))
+            all_found_audios = list({f.resolve(): f for f in all_found_audios}.values())
+            # Сортируем: самые длинные аудиофайлы (полная озвучка) всегда сверху!
+            all_found_audios.sort(key=lambda p: (get_audio_duration(p), p.stat().st_size), reverse=True)
 
-            else:
-                uploaded_audio_sw = st.file_uploader("Загрузите MP3/WAV файл озвучки из Google AI Studio:", type=["mp3", "wav", "m4a", "ogg"], key="sw_up_audio")
-                if uploaded_audio_sw:
-                    audio_save_sw = pm.get_audio_path(uploaded_audio_sw.name)
-                    audio_save_sw.write_bytes(uploaded_audio_sw.getvalue())
-                    audio_path_sw = audio_save_sw
-                    st.success(f"Файл загружен: {audio_save_sw.name} ({format_duration(get_audio_duration(audio_save_sw))})")
-                else:
-                    all_found_audios = list(pm.audio_dir.glob("*.mp3")) + list(pm.audio_dir.glob("*.wav")) + list(pm.audio_dir.glob("*.m4a"))
-                    if all_found_audios and not audio_path_sw:
-                        audio_path_sw = all_found_audios[0]
-                        st.info(f"✅ Используется активный аудиофайл: `{audio_path_sw.name}` ({format_duration(get_audio_duration(audio_path_sw))}).")
+            if all_found_audios:
+                st.markdown("##### 🎵 Аудиодорожка для сведения:")
+                af_labels = [f"{f.name} ({format_duration(get_audio_duration(f))})" for f in all_found_audios]
+                meta_act = pm.load_meta().get("active_audio")
+                def_idx = 0
+                if meta_act:
+                    for i, af in enumerate(all_found_audios):
+                        if af.name == meta_act:
+                            def_idx = i
+                            break
+                elif audio_path_sw and audio_path_sw in all_found_audios:
+                    def_idx = all_found_audios.index(audio_path_sw)
+
+                chosen_label = st.selectbox(
+                    "Файл озвучки для финального ролика:",
+                    af_labels,
+                    index=def_idx,
+                    key="sw_final_audio_select"
+                )
+                audio_path_sw = all_found_audios[af_labels.index(chosen_label)]
+                st.info(f"✅ Финальное видео будет сведено с: **`{audio_path_sw.name}`** (хронометраж: **{format_duration(get_audio_duration(audio_path_sw))}**).")
 
             # Финальный рендер
             st.divider()

@@ -81,6 +81,7 @@ def render_clip(
             "-crf", "22",
             "-pix_fmt", "yuv420p",
             "-r", str(fps),
+            "-video_track_timescale", "15360",
             "-an",                      # Без звука (звук накладывается при финальном сведении)
             str(output_path.resolve())
         ]
@@ -158,6 +159,7 @@ def render_clip(
             "-crf", "22",
             "-pix_fmt", "yuv420p",
             "-r", str(fps),
+            "-video_track_timescale", "15360",
             "-an",
             str(output_path.resolve())
         ]

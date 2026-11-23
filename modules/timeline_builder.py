@@ -11,7 +11,7 @@ from typing import List, Optional, Callable
 
 import imageio_ffmpeg
 
-from modules.scene_parser import SceneBlock, load_scenes, save_scenes
+from modules.scene_parser import SceneBlock, load_scenes, save_scenes, resolve_visual_path
 from modules.clip_renderer import render_clip, RESOLUTION, FPS
 
 
@@ -54,19 +54,33 @@ class TimelineBuilder:
     # Рендер клипов по сценам
     # ------------------------------------------------------------------ #
 
+    def get_video_duration(self, video_path: Path) -> float:
+        """Извлекает точную длительность видеофайла через ffmpeg."""
+        if not video_path.exists():
+            return 0.0
+        dur_cmd = [self.ffmpeg, "-i", str(video_path), "-f", "null", "-"]
+        dur_res = subprocess.run(dur_cmd, capture_output=True, text=True, errors="ignore")
+        import re
+        m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", dur_res.stderr)
+        if m:
+            return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        return 0.0
+
+    # ------------------------------------------------------------------ #
+    # Рендер клипов по сценам
+    # ------------------------------------------------------------------ #
+
     def render_scene_clip(self, scene: SceneBlock, force: bool = False) -> Optional[Path]:
         """
         Рендерит клип для одной сцены.
         Возвращает Path к MP4 или None если кадр не назначен.
         """
-        if not scene.visual_path:
-            return None
-        source = Path(scene.visual_path)
-        if not source.exists():
+        source = resolve_visual_path(scene.visual_path, self.project_dir)
+        if not source or not source.exists():
             return None
 
         out = self.render_dir / f"clip_{scene.index:03d}.mp4"
-        if out.exists() and not force:
+        if out.exists() and not force and out.stat().st_size > 1000:
             return out
 
         render_clip(
@@ -75,7 +89,7 @@ class TimelineBuilder:
             duration=scene.effective_duration,
             effect=scene.effect,
         )
-        return out if out.exists() else None
+        return out if (out.exists() and out.stat().st_size > 1000) else None
 
     def render_all_scene_clips(
         self,
@@ -85,7 +99,8 @@ class TimelineBuilder:
     ) -> List[Path]:
         """Рендерит клипы для всех сцен с заполненным visual_path."""
         clips: List[Path] = []
-        total = len([s for s in scenes if s.visual_path])
+        valid_scenes = [s for s in scenes if resolve_visual_path(s.visual_path, self.project_dir)]
+        total = len(valid_scenes)
         done = 0
         for s in scenes:
             clip = self.render_scene_clip(s, force=force)
@@ -112,14 +127,24 @@ class TimelineBuilder:
         """
         output = self.render_dir / "videotrack.mp4"
 
-        # 1. Рендерим все клипы
-        total_scenes = len([s for s in scenes if s.visual_path])
+        # 1. Проверяем доступность кадров
+        scenes_with_vis = [s for s in scenes if resolve_visual_path(s.visual_path, self.project_dir)]
+        if not scenes_with_vis:
+            raise RuntimeError("Нет ни одного кадра для монтажа. Запустите Автопилот Pexels в Шаге 2.")
+
+        # Автоматическое циклирование кадров, если видео скачаны только для части сцен:
+        # Это предотвращает обрезание видео до 30 секунд и гарантирует полное покрытие!
+        if len(scenes_with_vis) < len(scenes):
+            for idx, s in enumerate(scenes):
+                if not resolve_visual_path(s.visual_path, self.project_dir):
+                    donor = scenes_with_vis[idx % len(scenes_with_vis)]
+                    s.visual_path = donor.visual_path
+
+        total_scenes = len(scenes)
         done = 0
 
         clip_paths: List[Path] = []
         for s in scenes:
-            if not s.visual_path:
-                continue
             if progress_callback:
                 progress_callback(0.05 + 0.75 * (done / max(total_scenes, 1)),
                                   f"Рендер клипа {done + 1}/{total_scenes}: {s.title[:40]}")
@@ -131,7 +156,7 @@ class TimelineBuilder:
         if not clip_paths:
             raise RuntimeError("Нет ни одного клипа для склейки. Назначьте кадры сценам.")
 
-        # 2. Concat через FFmpeg (быстрее moviepy для финальной склейки)
+        # 2. Concat через FFmpeg
         if progress_callback:
             progress_callback(0.82, "Склейка клипов в единый видеоряд...")
 
@@ -149,11 +174,32 @@ class TimelineBuilder:
         ]
         subprocess.run(cmd, capture_output=True, errors="ignore")
 
+        # 3. Валидация фактической длительности полученного видеотрека
+        expected_dur = sum(s.effective_duration for s in scenes)
+        actual_dur = self.get_video_duration(output)
+
+        # Если concat copy дал сбой или оборвался раньше времени
+        if not output.exists() or output.stat().st_size < 5000 or (actual_dur < (expected_dur * 0.8) and len(clip_paths) > 1):
+            if progress_callback:
+                progress_callback(0.88, "Надежная повторная склейка видеоряда...")
+            cmd_fb = [
+                self.ffmpeg, "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", str(concat_list),
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                "-pix_fmt", "yuv420p",
+                "-r", str(FPS),
+                "-an",
+                str(output),
+            ]
+            subprocess.run(cmd_fb, capture_output=True, errors="ignore")
+
         if not output.exists() or output.stat().st_size < 5000:
             raise RuntimeError("Ошибка при создании видеоряда.")
 
+        final_dur = self.get_video_duration(output)
         if progress_callback:
-            progress_callback(1.0, f"Видеоряд готов ({output.stat().st_size // (1024 * 1024)} MB)")
+            progress_callback(1.0, f"Видеоряд готов: {int(final_dur // 60)}м {int(final_dur % 60)}с ({output.stat().st_size // (1024 * 1024)} MB)")
 
         return output
 
@@ -168,6 +214,7 @@ class TimelineBuilder:
     ) -> Path:
         """
         Склеивает видеоряд и аудиодорожку в финальный final_video.mp4.
+        Если видеоряд короче аудио — зацикливает видеоряд, чтобы звук диктора НИКОГДА не обрезался.
         Если audio_path=None — сохраняет видеоряд с тишиной.
         """
         videotrack = self.render_dir / "videotrack.mp4"
@@ -180,19 +227,18 @@ class TimelineBuilder:
             progress_callback(0.3, "Сведение видео с аудиодорожкой...")
 
         if audio_path and audio_path.exists():
-            # Получаем длительность видеотрека
-            dur_cmd = [self.ffmpeg, "-i", str(videotrack), "-f", "null", "-"]
-            dur_res = subprocess.run(dur_cmd, capture_output=True, text=True, errors="ignore")
-            import re
-            m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", dur_res.stderr)
-            video_dur = 0.0
-            if m:
-                video_dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+            from modules.audio_aligner import get_audio_duration
+            video_dur = self.get_video_duration(videotrack)
+            audio_dur = get_audio_duration(audio_path)
+
+            # Если видеоряд короче аудио (например видео 40 мин, а аудио 48 мин),
+            # зацикливаем видеоряд через -stream_loop, чтобы звук диктора не обрезался!
+            input_video_args = ["-stream_loop", "-1", "-i", str(videotrack)] if video_dur < (audio_dur - 1.0) else ["-i", str(videotrack)]
 
             # Быстрое сведение без лишнего перекодирования видеоряда
             cmd = [
                 self.ffmpeg, "-y",
-                "-i", str(videotrack),
+                *input_video_args,
                 "-i", str(audio_path),
                 "-c:v", "copy",
                 "-c:a", "aac", "-b:a", "192k",
@@ -205,9 +251,9 @@ class TimelineBuilder:
             if not output.exists() or output.stat().st_size < 10000:
                 cmd_fallback = [
                     self.ffmpeg, "-y",
-                    "-i", str(videotrack),
+                    *input_video_args,
                     "-i", str(audio_path),
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
                     "-c:a", "aac", "-b:a", "192k",
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-pix_fmt", "yuv420p",
@@ -221,20 +267,20 @@ class TimelineBuilder:
                 self.ffmpeg, "-y",
                 "-i", str(videotrack),
                 "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
                 "-c:a", "aac", "-b:a", "128k",
                 "-shortest",
                 "-pix_fmt", "yuv420p",
                 str(output),
             ]
-
-        subprocess.run(cmd, capture_output=True, errors="ignore")
+            subprocess.run(cmd, capture_output=True, errors="ignore")
 
         if not output.exists() or output.stat().st_size < 10000:
             raise RuntimeError("Ошибка финального рендера видео.")
 
+        final_dur = self.get_video_duration(output)
         if progress_callback:
-            progress_callback(1.0, f"Готово! ({output.stat().st_size // (1024 * 1024)} MB)")
+            progress_callback(1.0, f"Готово! {int(final_dur // 60)}м {int(final_dur % 60)}с ({output.stat().st_size // (1024 * 1024)} MB)")
 
         return output
 
