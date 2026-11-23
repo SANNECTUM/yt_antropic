@@ -10,8 +10,7 @@ gemini-webapi>=2.0.0
 # TTS (Voiceover generation)
 edge-tts>=7.3.1
 
-# Video Editing & Processing
-moviepy>=2.0.0
+# Fast Video Rendering & Processing (Pure FFmpeg & PIL)
 imageio-ffmpeg>=0.5.0
 pillow>=10.0.0
 numpy>=1.24.0
