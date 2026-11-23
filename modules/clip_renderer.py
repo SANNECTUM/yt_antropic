@@ -79,6 +79,7 @@ def render_clip(
             "-c:v", "libx264",
             "-preset", "ultrafast",     # Максимальная скорость рендера
             "-crf", "22",
+            "-threads", "2",            # Ограничение потоков для защиты от троттлинга CPU в Streamlit Cloud
             "-pix_fmt", "yuv420p",
             "-r", str(fps),
             "-video_track_timescale", "15360",
@@ -157,6 +158,7 @@ def render_clip(
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "22",
+            "-threads", "2",
             "-pix_fmt", "yuv420p",
             "-r", str(fps),
             "-video_track_timescale", "15360",

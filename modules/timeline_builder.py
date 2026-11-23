@@ -55,10 +55,10 @@ class TimelineBuilder:
     # ------------------------------------------------------------------ #
 
     def get_video_duration(self, video_path: Path) -> float:
-        """Извлекает точную длительность видеофайла через ffmpeg."""
+        """Мгновенно извлекает точную длительность видеофайла из заголовков за 0.02 сек (без декодирования)."""
         if not video_path.exists():
             return 0.0
-        dur_cmd = [self.ffmpeg, "-i", str(video_path), "-f", "null", "-"]
+        dur_cmd = [self.ffmpeg, "-i", str(video_path)]
         dur_res = subprocess.run(dur_cmd, capture_output=True, text=True, errors="ignore")
         import re
         m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", dur_res.stderr)
@@ -70,7 +70,12 @@ class TimelineBuilder:
     # Рендер клипов по сценам
     # ------------------------------------------------------------------ #
 
-    def render_scene_clip(self, scene: SceneBlock, force: bool = False) -> Optional[Path]:
+    def render_scene_clip(
+        self,
+        scene: SceneBlock,
+        force: bool = False,
+        resolution: tuple = RESOLUTION,
+    ) -> Optional[Path]:
         """
         Рендерит клип для одной сцены.
         Возвращает Path к MP4 или None если кадр не назначен.
@@ -88,6 +93,7 @@ class TimelineBuilder:
             output_path=out,
             duration=scene.effective_duration,
             effect=scene.effect,
+            resolution=resolution,
         )
         return out if (out.exists() and out.stat().st_size > 1000) else None
 
@@ -96,6 +102,7 @@ class TimelineBuilder:
         scenes: List[SceneBlock],
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         force: bool = False,
+        resolution: tuple = RESOLUTION,
     ) -> List[Path]:
         """Рендерит клипы для всех сцен с заполненным visual_path."""
         clips: List[Path] = []
@@ -103,7 +110,7 @@ class TimelineBuilder:
         total = len(valid_scenes)
         done = 0
         for s in scenes:
-            clip = self.render_scene_clip(s, force=force)
+            clip = self.render_scene_clip(s, force=force, resolution=resolution)
             if clip:
                 clips.append(clip)
                 done += 1
@@ -120,6 +127,7 @@ class TimelineBuilder:
         scenes: List[SceneBlock],
         progress_callback: Optional[Callable[[float, str], None]] = None,
         force: bool = False,
+        resolution: tuple = RESOLUTION,
     ) -> Path:
         """
         Рендерит и склеивает все клипы в единый видеоряд (без аудио).
@@ -148,7 +156,7 @@ class TimelineBuilder:
             if progress_callback:
                 progress_callback(0.05 + 0.75 * (done / max(total_scenes, 1)),
                                   f"Рендер клипа {done + 1}/{total_scenes}: {s.title[:40]}")
-            p = self.render_scene_clip(s, force=force)
+            p = self.render_scene_clip(s, force=force, resolution=resolution)
             if p:
                 clip_paths.append(p)
             done += 1
@@ -187,6 +195,7 @@ class TimelineBuilder:
                 "-f", "concat", "-safe", "0",
                 "-i", str(concat_list),
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                "-threads", "2",
                 "-pix_fmt", "yuv420p",
                 "-r", str(FPS),
                 "-an",

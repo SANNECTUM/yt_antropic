@@ -1075,13 +1075,47 @@ with tab_stepwise:
                 st.warning(f"⚠️ Не скачаны видео для {len(scenes_missing)} сцен: {', '.join([f'#{s.index}' for s in scenes_missing[:12]])}{'...' if len(scenes_missing)>12 else ''}. При рендере эти сцены будут автоматически заполнены доступными кадрами, либо нажмите «🚀 3. АВТОПИЛОТ» выше для полной загрузки всех стоков!")
 
             if scenes_ready:
+                col_rng1, col_rng2 = st.columns([1.5, 1])
+                with col_rng1:
+                    range_mode = st.radio(
+                        "🎯 Объём рендера (рекомендуется тест для экономии времени):",
+                        [
+                            f"⚡ Экспресс-тест: первые 5 сцен (~2 мин)",
+                            f"🧪 Тест: первые 10 сцен (~4 мин)",
+                            f"🎬 Весь ролик целиком (все {len(scenes_sw)} сцен)",
+                            "✏️ Выбрать диапазон вручную"
+                        ],
+                        index=0 if len(scenes_sw) > 15 else 2,
+                        key="sw_render_range_radio"
+                    )
+                with col_rng2:
+                    if "вручную" in range_mode:
+                        c_r1, c_r2 = st.columns(2)
+                        with c_r1:
+                            r_start = st.number_input("С номера:", min_value=1, max_value=len(scenes_sw), value=1)
+                        with c_r2:
+                            r_end = st.number_input("По номер:", min_value=1, max_value=len(scenes_sw), value=min(10, len(scenes_sw)))
+                        target_scenes = [s for s in scenes_sw if r_start <= s.index <= r_end]
+                    elif "первые 5" in range_mode:
+                        target_scenes = scenes_sw[:5]
+                    elif "первые 10" in range_mode:
+                        target_scenes = scenes_sw[:10]
+                    else:
+                        target_scenes = scenes_sw
+
+                    calc_dur = sum(s.effective_duration for s in target_scenes)
+                    st.info(f"Будет смонтировано: **{len(target_scenes)} сцен** (~{int(calc_dur//60)}м {int(calc_dur%60)}с)")
+
                 col_rb1, col_rb2 = st.columns([2, 1])
                 with col_rb1:
                     force_rerender = st.checkbox("🔄 Перерендерить уже готовые клипы", value=False, key="sw_force_render")
                 with col_rb2:
-                    render_res = st.selectbox("Разрешение:", ["1920x1080 (Full HD)", "1280x720 (HD)"], key="sw_res")
+                    render_res = st.selectbox("Разрешение:", ["1280x720 (HD) — Быстро (рекомендуется)", "1920x1080 (Full HD)"], key="sw_res")
 
-                if st.button("🎬 РЕНДЕРИТЬ ВИДЕОРЯД (без озвучки)", type="primary", use_container_width=True, key="sw_btn_render"):
+                res_tuple = (1280, 720) if "720" in render_res else (1920, 1080)
+
+                btn_label = f"🎬 РЕНДЕРИТЬ ({len(target_scenes)} сцен, ~{int(calc_dur//60)}м {int(calc_dur%60)}с)"
+                if st.button(btn_label, type="primary", use_container_width=True, key="sw_btn_render"):
                     prog_sw = st.progress(0, text="Начинаем рендер...")
                     status_sw = st.empty()
 
@@ -1091,9 +1125,10 @@ with tab_stepwise:
 
                     try:
                         track = tl_builder.build_videotrack(
-                            scenes_sw,
+                            target_scenes,
                             progress_callback=on_tl_prog,
-                            force=force_rerender
+                            force=force_rerender,
+                            resolution=res_tuple
                         )
                         prog_sw.progress(100, "✅ Видеоряд готов!")
                         status_sw.success(f"🎬 Видеоряд создан: `{track.name}` ({track.stat().st_size // (1024*1024)} MB)")
@@ -1107,7 +1142,7 @@ with tab_stepwise:
                 st.markdown("#### 🎥 Готовый видеоряд (без озвучки):")
                 st.video(str(videotrack))
                 with open(videotrack, "rb") as vf:
-                    st.download_button("⬇️ Скачать видеоряд (MP4)", data=vf.read(),
+                    st.download_button("⬇️ Скачать видеоряд (MP4)", data=vf,
                                        file_name=f"{pm.slug}_videotrack.mp4",
                                        mime="video/mp4", key="sw_dl_track")
 
