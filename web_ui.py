@@ -1169,8 +1169,22 @@ with tab_stepwise:
                                 prog_tts_sw.progress(100, "✅ Озвучка готова!")
                                 audio_path_sw = tts_out_sw
                                 st.success(f"🎙️ Аудио: `{tts_out_sw.name}` ({tts_out_sw.stat().st_size // 1024} KB)")
+                                m = pm.load_meta()
+                                m["active_audio"] = tts_out_sw.name
+                                pm.save_meta(m)
                             except Exception as e:
                                 st.error(f"Ошибка TTS: {e}")
+
+            else:
+                uploaded_audio_sw = st.file_uploader("Загрузите MP3/WAV файл озвучки из Google AI Studio:", type=["mp3", "wav", "m4a", "ogg"], key="sw_up_audio")
+                if uploaded_audio_sw:
+                    audio_save_sw = pm.get_audio_path(uploaded_audio_sw.name)
+                    audio_save_sw.write_bytes(uploaded_audio_sw.getvalue())
+                    audio_path_sw = audio_save_sw
+                    st.success(f"Файл загружен: {audio_save_sw.name} ({format_duration(get_audio_duration(audio_save_sw))})")
+                    m = pm.load_meta()
+                    m["active_audio"] = audio_save_sw.name
+                    pm.save_meta(m)
 
             # Ищем все доступные аудиофайлы проекта (включая загруженные в Шаге 1)
             all_found_audios = list(pm.audio_dir.glob("*.mp3")) + list(pm.audio_dir.glob("*.wav")) + list(pm.audio_dir.glob("*.m4a"))
