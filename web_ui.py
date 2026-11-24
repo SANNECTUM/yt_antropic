@@ -144,11 +144,23 @@ with tab_autopilot:
     saved_topic = project_meta.get("topic", "")
     saved_genre = project_meta.get("genre", "Детективное расследование / True Crime")
     saved_minutes = project_meta.get("minutes", 5)
+    saved_url = project_meta.get("article_url", "")
+
+    st.markdown("### 🤖 Автопилот: Создание видео без вашего участия")
+    st.caption("Просто вставьте ссылку на статью (или укажите тему). Конвейер сам скачает статью, напишет сценарий, озвучит диктором, подберет видеоряд на Pexels и смонтирует готовый ролик.")
+
+    auto_url = st.text_input(
+        "🔗 Ссылка на статью (URL) — авто-создание видео под ключ:",
+        value=saved_url,
+        placeholder="например: https://habr.com/ru/articles/... или новость, лонгрид, Википедия, vc.ru",
+        key="auto_url_input",
+        help="Вставьте ссылку на любую статью в интернете. Система сама обойдет блокировки, скачает текст и сделает из него видео."
+    )
 
     c_ap1, c_ap2 = st.columns([2, 1])
     with c_ap1:
-        auto_topic = st.text_input("Тема ролика / Центральный конфликт:", value=saved_topic, placeholder="например: Тайна исчезновения рейса MH370, Крах империи Enron, Как создавался iPhone...", key="auto_topic_input")
-        auto_materials = st.text_area("Исходные факты / текст статьи (опционально):", value=pm.load_raw_material() or "", height=140, placeholder="Вставьте сюда текст статьи, заметки или факты. Если поле пустое, Gemini соберет всю фактуру самостоятельно по теме.", key="auto_mat_input")
+        auto_topic = st.text_input("Тема ролика (опционально, если есть ссылка):", value=saved_topic, placeholder="Если поле пустое, заголовок будет взят автоматически из статьи...", key="auto_topic_input")
+        auto_materials = st.text_area("Исходный текст / заметки (опционально):", value=pm.load_raw_material() or "", height=100, placeholder="Если указана ссылка выше, текст статьи загрузится автоматически.", key="auto_mat_input")
     with c_ap2:
         genre_list = [
             "Детективное расследование / True Crime",
@@ -162,66 +174,83 @@ with tab_autopilot:
         auto_genre = st.selectbox("Жанр ролика:", genre_list, index=g_def_idx, key="auto_genre_sel")
         auto_minutes = st.select_slider("Хронометраж ролика (мин):", options=[3, 5, 8, 10, 15], value=min(5, saved_minutes), key="auto_min_slider", help="3-5 минут идеально для быстрого теста и динамичного контента (собирается за 1-2 минуты). 10-15 минут — для длинных глубоких документалок.")
 
-    with st.expander("⚙️ Настройки конвейера и визуала", expanded=False):
-        c_tts_flag, c_sc = st.columns([1.5, 1])
+    with st.expander("⚙️ Настройки визуала и озвучки", expanded=False):
+        c_vis_cfg, c_tts_flag = st.columns([1, 1.2])
+        with c_vis_cfg:
+            auto_vis_mode = st.radio(
+                "Визуальный ряд:",
+                ["🎬 Pexels B-Roll (живые видеоклипы без повторов)", "🎨 AI-иллюстрации (16:9)"],
+                index=0,
+                key="auto_vis_mode_radio"
+            )
+            vis_mode_code = "pexels" if "Pexels" in auto_vis_mode else "ai_images"
+
         with c_tts_flag:
             auto_include_tts = st.checkbox(
                 "🎙️ Включить озвучку диктором (TTS) в конвейер",
-                value=False,
+                value=True,
                 key="auto_include_tts_check",
-                help="По умолчанию озвучка ОТКЛЮЧЕНА для мгновенной генерации (~20-30 сек). Включите, если хотите сразу синтезировать начитку диктора."
+                help="Синтезирует профессиональный голос диктора под хронометраж ролика."
             )
             if auto_include_tts:
+                from modules.coqui_tts_client import CoquiTTSClient
+                is_xtts_avail = CoquiTTSClient().is_running()
                 c_eng, c_vc = st.columns(2)
                 with c_eng:
-                    pipeline_engine = st.radio("Движок:", ["⚡ Edge TTS", "🌟 Google AI Studio"], index=0, key="auto_eng_rad")
+                    tts_opts = ["⚡ Edge TTS (Облако/Быстро)", "🎙️ Coqui XTTS (RTX 4060 Ti)", "🌟 Google Gemini"]
+                    def_tts_idx = 1 if is_xtts_avail else 0
+                    pipeline_engine = st.radio("Движок:", tts_opts, index=def_tts_idx, key="auto_eng_rad")
                 with c_vc:
-                    if "Edge" in pipeline_engine:
+                    if "Coqui" in pipeline_engine:
+                        engine_code = "coqui"
+                        voice_id = "dmitry_narrator.wav"
+                        st.caption("🎙️ Клонирование голоса на RTX 4060 Ti")
+                    elif "Edge" in pipeline_engine:
                         pipeline_voice = st.selectbox("Голос:", ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"], index=0, key="auto_edge_v")
                         voice_id = "ru-RU-DmitryNeural" if "Dmitry" in pipeline_voice else "ru-RU-SvetlanaNeural"
                         engine_code = "edge"
                     else:
-                        pipeline_voice = st.selectbox("Голос Gemini:", ["Milo (Podcast)", "Nika (Podcast)", "Charon", "Fenrir"], index=0, key="auto_gem_v")
+                        pipeline_voice = st.selectbox("Голос Gemini:", ["Milo", "Nika", "Charon", "Fenrir"], index=0, key="auto_gem_v")
                         voice_id = pipeline_voice.split()[0]
                         engine_code = "gemini"
             else:
                 engine_code = "edge"
                 voice_id = "ru-RU-DmitryNeural"
-                st.caption("⚡ Режим турбо-сборки: сценарий + раскадровка 16:9 + монтаж 1080p Ken Burns + обложка и SEO за ~20-30 секунд.")
 
-        with c_sc:
-            auto_scene_count = st.slider("Количество кадров (16:9):", min_value=4, max_value=16, value=6, key="auto_sc_slider", help="Сколько иллюстраций сгенерировать. Кадры равномерно распределятся по хронометражу с кинематографичным зумом.")
-
-    btn_run_autopilot = st.button("🚀 ЗАПУСТИТЬ АВТО-КОНВЕЙЕР ВИДЕО", type="primary", use_container_width=True, key="btn_run_autopilot")
+    btn_run_autopilot = st.button("🚀 СОЗДАТЬ ПОЛНОЕ ВИДЕО В 1 КЛИК (АВТОПИЛОТ)", type="primary", use_container_width=True, key="btn_run_autopilot")
 
     if btn_run_autopilot:
-        if not auto_topic.strip() and not auto_materials.strip():
-            st.error("Пожалуйста, укажите хотя бы тему ролика или вставьте материалы.")
+        if not auto_url.strip() and not auto_topic.strip() and not auto_materials.strip():
+            st.error("Пожалуйста, вставьте ссылку на статью или укажите тему ролика.")
         else:
             progress_bar = st.progress(0, text="Инициализация конвейера...")
             status_box = st.empty()
 
             def on_pipe_progress(pct: float, msg: str):
-                progress_bar.progress(int(pct * 100), text=f"Прогресс конвейера: {int(pct * 100)}%")
+                progress_bar.progress(int(pct * 100), text=f"Прогресс: {int(pct * 100)}%")
                 status_box.info(f"⚙️ {msg}")
 
             try:
+                import gc
+                gc.collect()
                 runner = VideoPipelineRunner(pm, model_name=model_name)
                 res = runner.run_full_pipeline(
                     topic=auto_topic.strip(),
                     source_materials=auto_materials.strip(),
+                    article_url=auto_url.strip() or None,
                     genre=auto_genre,
                     target_minutes=int(auto_minutes),
                     include_tts=auto_include_tts,
                     tts_engine=engine_code,
                     tts_voice=voice_id,
-                    num_visual_scenes=int(auto_scene_count),
+                    visual_mode=vis_mode_code,
                     progress_callback=on_pipe_progress
                 )
+                gc.collect()
                 progress_bar.progress(100, text="✅ Видеокомплект успешно создан!")
                 status_box.empty()
                 st.balloons()
-                st.success(f"🎉 Конвейер успешно завершен за {res['elapsed_seconds']} сек! Ролик {res['video_size_mb']} MB готов к публикации.")
+                st.success(f"🎉 Полный конвейер завершен за {res['elapsed_seconds']} сек! Ролик ({res['video_size_mb']} MB) готов к публикации.")
                 st.rerun()
             except Exception as pipe_err:
                 status_box.empty()

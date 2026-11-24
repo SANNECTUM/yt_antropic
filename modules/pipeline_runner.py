@@ -11,6 +11,11 @@ from modules.image_generator import ImageGenerator
 from modules.tts_synthesizer import TTSSynthesizer
 from modules.video_editor import VideoEditor
 from modules.packaging_generator import PackagingGenerator
+from modules.article_parser import ArticleParser
+from modules.audio_aligner import AudioSceneAligner
+from modules.pexels_downloader import PexelsDownloader
+from modules.timeline_builder import TimelineBuilder
+from modules.scene_parser import save_scenes
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageEnhance
 
 class VideoPipelineRunner:
@@ -132,44 +137,69 @@ class VideoPipelineRunner:
 
     def run_full_pipeline(
         self,
-        topic: str,
+        topic: str = "",
         source_materials: str = "",
+        article_url: Optional[str] = None,
         genre: str = "Документальный детектив / True Crime",
         target_minutes: int = 5,
-        include_tts: bool = False,
+        include_tts: bool = True,
         tts_engine: str = "edge",
         tts_voice: str = "ru-RU-DmitryNeural",
+        visual_mode: str = "pexels",
         num_visual_scenes: Optional[int] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None
     ) -> Dict[str, Any]:
         """
-        Запускает цикл сборки видео под ключ:
-        1. Сценарий (Gemini)
-        2. Озвучка (опционально, если include_tts=True)
-        3. Визуалы и раскадровка (FLUX / Pollinations 16:9)
-        4. Монтаж видео 1080p с эффектом Ken Burns (FFmpeg)
-        5. Обложка и SEO-упаковка
+        Запускает полный цикл сборки видео БЕЗ участия человека:
+        0. Авто-парсинг статьи по URL (если передана ссылка)
+        1. Профессиональный сценарий с удержанием и клиффхэнгерами (Gemini)
+        2. Студийная начитка диктора (Edge TTS / Coqui XTTS на RTX 4060 Ti)
+        3. Раскадровка под хронометраж звука и автопилот Pexels (уникальные видео без повторов)
+        4. Моментальный монтаж Full HD/HD видеоряда (FFmpeg stream copy)
+        5. Финальное сведение с озвучкой, High-CTR обложка и SEO-упаковка для YouTube
         """
         start_time = time.time()
+        total_steps = 6
+        cur_step = 1
+
+        # ==========================================
+        # ЭТАП 0: ПАРСИНГ СТАТЬИ ПО ССЫЛКЕ
+        # ==========================================
+        clean_url = (article_url or "").strip()
+        if clean_url:
+            if progress_callback:
+                progress_callback(0.04, f"Шаг {cur_step}/{total_steps}: Загрузка и анализ статьи по ссылке...")
+            parse_res = ArticleParser.parse_url(clean_url)
+            if parse_res.get("success"):
+                extracted_txt = parse_res.get("text", "")
+                extracted_title = parse_res.get("title", "")
+                if not source_materials.strip():
+                    source_materials = extracted_txt
+                if not topic.strip() and extracted_title:
+                    topic = extracted_title
+            cur_step += 1
+
+        if not topic.strip():
+            topic = "Интересная история и расследование"
+
         self.pm.save_meta({
             "topic": topic.strip(),
             "genre": genre,
             "minutes": target_minutes,
             "include_tts": include_tts,
             "tts_engine": tts_engine,
-            "tts_voice": tts_voice
+            "tts_voice": tts_voice,
+            "visual_mode": visual_mode,
+            "article_url": clean_url
         })
         if source_materials.strip():
             self.pm.save_raw_material(source_materials.strip())
-
-        total_steps = 5 if include_tts else 4
-        cur_step = 1
 
         # ==========================================
         # ЭТАП 1: ГЕНЕРАЦИЯ СЦЕНАРИЯ
         # ==========================================
         if progress_callback:
-            progress_callback(0.05, f"Шаг {cur_step}/{total_steps}: Gemini пишет профессиональный сценарий...")
+            progress_callback(0.12, f"Шаг {cur_step}/{total_steps}: Gemini пишет сценарий для YouTube...")
 
         if target_minutes <= 6:
             script_text = self.script_gen.generate_script(
@@ -195,160 +225,166 @@ class VideoPipelineRunner:
         est_duration = max(30.0, (words_count / 135.0) * 60.0)
 
         if progress_callback:
-            progress_callback(0.20, f"Шаг {cur_step}/{total_steps}: Сценарий готов ({words_count:,} слов, ~{words_count//135} мин)!")
+            progress_callback(0.24, f"Шаг {cur_step}/{total_steps}: Сценарий готов ({words_count} слов, ~{int(est_duration//60)} мин)!")
         cur_step += 1
 
         # ==========================================
-        # ЭТАП 2: СТУДИЙНАЯ ОЗВУЧКА (ОПЦИОНАЛЬНО)
+        # ЭТАП 2: СТУДИЙНАЯ ОЗВУЧКА
         # ==========================================
-        audio_path = None
+        audio_path = self.pm.get_audio_path("voiceover_full.mp3")
         audio_dur = est_duration
 
         if include_tts:
             if progress_callback:
-                progress_callback(0.25, f"Шаг {cur_step}/{total_steps}: Синтез речи диктора ({tts_voice})...")
+                progress_callback(0.28, f"Шаг {cur_step}/{total_steps}: Озвучка диктором ({tts_engine.upper()})...")
 
-            audio_path = self.pm.get_audio_path("voiceover_full.mp3")
             tts = TTSSynthesizer(
                 voice=tts_voice,
                 engine=tts_engine,
-                concurrency=4 if tts_engine == "edge" else 2
+                concurrency=4 if tts_engine == "edge" else 1
             )
 
             def on_tts_prog(cur, tot, prev):
                 if progress_callback and tot > 0:
-                    p = 0.25 + 0.15 * (cur / tot)
-                    progress_callback(p, f"Озвучка: блок {cur}/{tot} ({prev[:30]}...)")
+                    p = 0.28 + 0.16 * (cur / tot)
+                    progress_callback(p, f"Озвучка: блок {cur}/{tot}...")
 
             tts.synthesize_to_file(clean_voiceover, audio_path, progress_callback=on_tts_prog)
-            audio_dur = self.video_editor.get_audio_duration(audio_path)
+            from modules.audio_aligner import get_audio_duration
+            audio_dur = get_audio_duration(audio_path)
+            if audio_dur <= 0:
+                audio_dur = est_duration
+
+            m = self.pm.load_meta()
+            m["active_audio"] = audio_path.name
+            self.pm.save_meta(m)
 
             if progress_callback:
-                progress_callback(0.40, f"Шаг {cur_step}/{total_steps}: Озвучка завершена! Длительность речи: {audio_dur/60:.2f} мин ({int(audio_dur)} сек)")
+                progress_callback(0.46, f"Шаг {cur_step}/{total_steps}: Озвучка готова ({int(audio_dur//60)}м {int(audio_dur%60)}с)!")
             cur_step += 1
         else:
-            # Если озвучка отключена, используем уже имеющийся в проекте аудиофайл (если пользователь озвучил его ранее)
             existing_audio = self.pm.get_audio_path("voiceover_full.mp3")
             if existing_audio.exists() and existing_audio.stat().st_size > 1000:
                 audio_path = existing_audio
-                audio_dur = self.video_editor.get_audio_duration(audio_path)
 
         # ==========================================
-        # ЭТАП 3: РАСКАДРОВКА И ГЕНЕРАЦИЯ ВИЗУАЛОВ
+        # ЭТАП 3: РАСКАДРОВКА И ПОДБОР ВИЗУАЛОВ
         # ==========================================
-        if progress_callback:
-            progress_callback(0.45, f"Шаг {cur_step}/{total_steps}: Генерация визуальных сцен и раскадровки (16:9)...")
-
-        prompts_md = self.prompt_gen.generate_prompts(script_text)
-        self.pm.save_prompts(prompts_md)
-        scenes = ImageGenerator.parse_prompts_from_markdown(prompts_md)
-
-        # Если раскадровка пустая, генерируем базовые сцены
-        if not scenes:
-            scenes = [
-                {"index": 1, "title": "Завязка истории", "prompt": f"{topic}, dramatic cinematic scene, 8k, photorealistic"},
-                {"index": 2, "title": "Расследование", "prompt": f"detective investigation, archives, documents, dramatic lighting"},
-                {"index": 3, "title": "Кульминация", "prompt": f"dramatic confrontation, cinematic realism, 8k resolution"}
-            ]
-
-        # Рассчитываем оптимальное число кадров (кадр меняется каждые ~6-9 секунд)
-        ideal_scenes = max(4, int(audio_dur / 8.0))
-        target_scene_count = num_visual_scenes if num_visual_scenes else min(len(scenes), ideal_scenes)
-        target_scene_count = max(4, min(target_scene_count, 20)) # От 4 до 20 кадров
-        scenes_to_render = scenes[:target_scene_count]
-
-        total_sc = len(scenes_to_render)
-        generated_images = []
-
-        for idx, sc in enumerate(scenes_to_render):
-            img_path = self.pm.visuals_dir / f"scene_{idx+1:02d}.jpg"
-            if progress_callback:
-                p = 0.45 + 0.25 * (idx / total_sc)
-                progress_callback(p, f"Генерация кадра {idx+1}/{total_sc}: {sc['title'][:35]}...")
-
-            if not (img_path.exists() and img_path.stat().st_size > 5000):
-                sc_title = sc.get("title", f"Сцена {idx+1}")
-                try:
-                    self.image_gen.generate_single_image(
-                        sc.get("prompt") or topic,
-                        img_path,
-                        width=1280,
-                        height=720,
-                        title=sc_title
-                    )
-                except Exception:
-                    fallback_p = f"{topic}, scene {idx+1}, cinematic movie shot, 8k"
-                    try:
-                        self.image_gen.generate_single_image(
-                            fallback_p,
-                            img_path,
-                            width=1280,
-                            height=720,
-                            title=sc_title
-                        )
-                    except Exception:
-                        pass
-
-            if img_path.exists() and img_path.stat().st_size > 5000:
-                generated_images.append(img_path)
-
-        if not generated_images:
-            raise RuntimeError("Не удалось сгенерировать ни одного изображения для видеоряда.")
-
-        if progress_callback:
-            progress_callback(0.70, f"Шаг {cur_step}/{total_steps}: Все {len(generated_images)} кадров успешно созданы!")
-        cur_step += 1
-
-        # ==========================================
-        # ЭТАП МОНТАЖА ВИДЕО
-        # ==========================================
-        if progress_callback:
-            progress_callback(0.75, f"Шаг {cur_step}/{total_steps}: Монтаж видеоряда в Full HD с эффектом Ken Burns...")
-
+        tl_builder = TimelineBuilder(self.pm.project_dir)
         final_video_path = self.pm.project_dir / "final_video.mp4"
 
-        def on_video_prog(pct, msg):
+        if visual_mode == "pexels":
             if progress_callback:
-                p = 0.75 + 0.15 * pct
-                progress_callback(p, f"Монтаж: {msg}")
+                progress_callback(0.50, f"Шаг {cur_step}/{total_steps}: Точная нарезка сцен под реальный голос...")
 
-        self.video_editor.assemble_video(
-            visuals_dir=self.pm.visuals_dir,
-            audio_path=audio_path,
-            output_path=final_video_path,
-            fps=30,
-            resolution="1920x1080",
-            ken_burns=True,
-            progress_callback=on_video_prog
-        )
+            # 1. Синхронизируем сценарий строго под полученный звук
+            aligned_scenes = AudioSceneAligner.align_script_to_audio(
+                script_text=clean_voiceover,
+                audio_path=audio_path,
+                target_scene_duration=18.0,
+                use_gemini=False,
+                style_context=topic
+            )
+            save_scenes(aligned_scenes, self.pm.project_dir)
+            tl_builder.save_timeline(aligned_scenes)
 
-        if progress_callback:
-            progress_callback(0.90, f"Шаг {cur_step}/{total_steps}: Видео смонтировано ({final_video_path.stat().st_size // (1024*1024)} MB)!")
+            # 2. Генерируем лаконичные 2-3 словные теги для Pexels
+            if progress_callback:
+                progress_callback(0.56, f"Шаг {cur_step}/{total_steps}: Генерация B-roll запросов под сцены...")
+            px_downloader = PexelsDownloader()
+            queries = px_downloader.generate_broll_queries(
+                [s.text for s in aligned_scenes],
+                style_context=topic
+            )
+            for i, s in enumerate(aligned_scenes):
+                if i < len(queries):
+                    s.search_query = queries[i]
+
+            # 3. Автопилот Pexels: скачиваем уникальные ролики БЕЗ ПОВТОРОВ
+            if progress_callback:
+                progress_callback(0.62, f"Шаг {cur_step}/{total_steps}: Автопилот Pexels скачивает видео...")
+
+            used_ids = set()
+            total_sc = len(aligned_scenes)
+            for idx, s in enumerate(aligned_scenes):
+                dest_file = self.pm.visuals_dir / f"scene_{s.index:03d}.mp4"
+                rel_path = f"visuals/{dest_file.name}"
+                q = s.search_query.strip() or "cinematic documentary"
+
+                if progress_callback:
+                    p = 0.62 + 0.16 * ((idx + 1) / max(total_sc, 1))
+                    progress_callback(p, f"Кадр {idx+1}/{total_sc}: Pexels видео '{q}'...")
+
+                vids = px_downloader.search_videos(q, limit=6)
+                if vids:
+                    chosen = None
+                    for v in vids:
+                        v_id = v.get("id") or v.get("download_url")
+                        if v_id not in used_ids:
+                            chosen = v
+                            used_ids.add(v_id)
+                            break
+                    if not chosen:
+                        chosen = vids[0]
+                    if px_downloader.download_video_file(chosen["download_url"], dest_file):
+                        s.visual_path = rel_path
+
+            save_scenes(aligned_scenes, self.pm.project_dir)
+            tl_builder.save_timeline(aligned_scenes)
+
+            # 4. Монтаж видеотрека и сведение со звуком
+            if progress_callback:
+                progress_callback(0.80, f"Шаг {cur_step}/{total_steps}: Склейка видеоряда через FFmpeg...")
+
+            tl_builder.build_videotrack(aligned_scenes, force=True, resolution=(1280, 720))
+            tl_builder.mix_with_audio(audio_path if audio_path.exists() else None)
+
+        else:
+            # Режим нейро-изображений (FLUX / Pollinations)
+            if progress_callback:
+                progress_callback(0.52, f"Шаг {cur_step}/{total_steps}: Генерация 16:9 иллюстраций...")
+            prompts_md = self.prompt_gen.generate_prompts(script_text)
+            self.pm.save_prompts(prompts_md)
+            raw_scenes = ImageGenerator.parse_prompts_from_markdown(prompts_md)
+            if not raw_scenes:
+                raw_scenes = [{"index": 1, "title": "Завязка", "prompt": f"{topic}, cinematic 16:9"}]
+
+            scenes_to_render = raw_scenes[:min(len(raw_scenes), 10)]
+            for idx, sc in enumerate(scenes_to_render):
+                img_path = self.pm.visuals_dir / f"scene_{idx+1:02d}.jpg"
+                if not img_path.exists():
+                    self.image_gen.generate_single_image(sc.get("prompt") or topic, img_path, width=1280, height=720)
+
+            self.video_editor.assemble_video(
+                visuals_dir=self.pm.visuals_dir,
+                audio_path=audio_path,
+                output_path=final_video_path,
+                resolution="1280x720",
+                ken_burns=True
+            )
+
         cur_step += 1
 
         # ==========================================
-        # ЭТАП УПАКОВКИ, ЗАГОЛОВКОВ И ОБЛОЖКИ
+        # ЭТАП 5: SEO-УПАКОВКА И ЧЕРНОВИК ОБЛОЖКИ
         # ==========================================
         if progress_callback:
-            progress_callback(0.92, f"Шаг {cur_step}/{total_steps}: Создаем High-CTR обложку и SEO-упаковку для YouTube...")
+            progress_callback(0.92, f"Шаг {cur_step}/{total_steps}: Генерация кликабельных заголовков и описания...")
 
         titles_text = self.packaging_gen.generate_titles(script_text)
         self.pm.save_titles(titles_text)
-
         desc_text = self.packaging_gen.generate_description(script_text)
         self.pm.save_description(desc_text)
 
-        # Выбираем лучший заголовок для обложки
         titles_list = PackagingGenerator.parse_titles(titles_text)
         top_title = titles_list[0] if titles_list else topic
 
-        # Генерируем финальную обложку
         thumbnail_path = self.pm.project_dir / "thumbnail.jpg"
-        bg_for_thumb = generated_images[0] if generated_images else None
-        if bg_for_thumb and bg_for_thumb.exists():
+        all_imgs = sorted(list(self.pm.visuals_dir.glob("*.jpg")) + list(self.pm.visuals_dir.glob("*.png")))
+        if all_imgs:
             try:
                 self.create_high_ctr_thumbnail(
-                    bg_image_path=bg_for_thumb,
+                    bg_image_path=all_imgs[0],
                     output_path=thumbnail_path,
                     title_text=top_title
                 )
@@ -357,7 +393,7 @@ class VideoPipelineRunner:
 
         total_elapsed = time.time() - start_time
         if progress_callback:
-            progress_callback(1.0, f"🎉 Авто-конвейер полностью завершен за {int(total_elapsed)} сек! Готовы видео, обложка и описание.")
+            progress_callback(1.0, f"🎉 Полный автомат завершен за {int(total_elapsed)} сек! Ролик готов к публикации.")
 
         return {
             "status": "success",
@@ -366,7 +402,7 @@ class VideoPipelineRunner:
             "audio_path": audio_path,
             "audio_duration": audio_dur,
             "words_count": words_count,
-            "video_size_mb": round(final_video_path.stat().st_size / (1024 * 1024), 1),
+            "video_size_mb": round(final_video_path.stat().st_size / (1024 * 1024), 1) if final_video_path.exists() else 0,
             "top_title": top_title,
             "all_titles": titles_list,
             "description": desc_text,
