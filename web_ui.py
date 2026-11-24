@@ -1245,18 +1245,45 @@ with tab_stepwise:
                         st.text_area("", value=clean_text_sw[:2000] + ("..." if len(clean_text_sw) > 2000 else ""),
                                      height=150, disabled=True, key="sw_vo_preview")
 
+                    from modules.coqui_tts_client import CoquiTTSClient
+                    xtts_client = CoquiTTSClient()
+                    is_xtts_on = xtts_client.is_running()
+
                     c_tts1, c_tts2 = st.columns(2)
                     with c_tts1:
-                        tts_eng_sw = st.radio("Движок:", ["⚡ Edge TTS", "🌟 Google Gemini"], key="sw_tts_eng")
+                        tts_eng_sw = st.radio(
+                            "Движок озвучки:",
+                            ["⚡ Edge TTS (Быстро/Облако)", "🎙️ Coqui XTTS (RTX 4060 Ti / Клонирование)", "🌟 Google Gemini"],
+                            key="sw_tts_eng"
+                        )
                     with c_tts2:
                         if "Edge" in tts_eng_sw:
                             tts_voice_sw = st.selectbox("Голос:", ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"], key="sw_edge_voice")
                             tts_engine_sw = "edge"
+                        elif "Coqui" in tts_eng_sw:
+                            tts_engine_sw = "coqui"
+                            if is_xtts_on:
+                                s_info = xtts_client.get_server_info()
+                                st.success(f"🟢 **XTTS активен** ({s_info.get('gpu', 'CUDA')})")
+                            else:
+                                st.info("⚪ **Сервер XTTS не запущен.** Запустите `start_xtts.bat` для генерации на RTX 4060 Ti.")
+
+                            avail_v = xtts_client.list_available_voices()
+                            v_labels = [f"{v['title']} ({v['id']})" for v in avail_v] if avail_v else ["По умолчанию (default)"]
+                            chosen_v_label = st.selectbox("Образец голоса (Voice Clone):", v_labels, key="sw_coqui_vsel")
+                            tts_voice_sw = avail_v[v_labels.index(chosen_v_label)]["id"] if (avail_v and chosen_v_label in v_labels) else "dmitry_narrator.wav"
+
+                            up_clone = st.file_uploader("➕ Добавить свой образец голоса (WAV/MP3 6-10 сек):", type=["wav", "mp3"], key="up_clone_voice")
+                            if up_clone:
+                                saved_v = xtts_client.save_voice_sample(up_clone.name, up_clone.getvalue())
+                                st.success(f"Образец `{saved_v.name}` сохранён для клонирования!")
+                                st.rerun()
                         else:
                             tts_voice_sw = st.selectbox("Голос:", ["Milo", "Nika", "Charon", "Fenrir"], key="sw_gem_voice")
                             tts_engine_sw = "gemini"
 
-                    if st.button("🎙️ Синтезировать голос диктора", type="primary", key="sw_btn_tts"):
+                    btn_disabled = ("Coqui" in tts_eng_sw and not is_xtts_on)
+                    if st.button("🎙️ Синтезировать голос диктора", type="primary", key="sw_btn_tts", disabled=btn_disabled):
                         tts_out_sw = pm.get_audio_path("voiceover_full.mp3")
                         prog_tts_sw = st.progress(0, text="Начинаем синтез...")
 
@@ -1264,7 +1291,7 @@ with tab_stepwise:
                             if tot > 0:
                                 prog_tts_sw.progress(int(cur / tot * 90), text=f"TTS: блок {cur}/{tot}")
 
-                        with st.spinner("Синтез речи..."):
+                        with st.spinner("Синтез речи (нейросеть озвучивает сценарий)..."):
                             try:
                                 tts_sw = TTSSynthesizer(voice=tts_voice_sw, engine=tts_engine_sw, concurrency=4)
                                 tts_sw.synthesize_to_file(clean_text_sw, tts_out_sw, progress_callback=on_tts_sw)

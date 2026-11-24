@@ -33,6 +33,8 @@ class TTSSynthesizer:
         if not self.engine:
             if voice in gemini_voice_ids:
                 self.engine = "gemini"
+            elif voice and (voice.endswith(".wav") or voice.endswith(".mp3")):
+                self.engine = "coqui"
             else:
                 self.engine = getattr(config, "DEFAULT_TTS_ENGINE", "gemini")
 
@@ -41,6 +43,11 @@ class TTSSynthesizer:
             self.style = kwargs.get("style") or ("podcast" if self.voice in ["Milo", "Nika"] else "documentary")
             self.concurrency = concurrency if concurrency is not None else kwargs.get("concurrency", 2)
             self.chunk_size = chunk_size if chunk_size is not None else kwargs.get("chunk_size", 2500)
+        elif self.engine == "coqui":
+            self.voice = voice or "dmitry_narrator.wav"
+            self.style = "documentary"
+            self.concurrency = 1
+            self.chunk_size = chunk_size or 220
         else:
             self.voice = voice or getattr(config, "DEFAULT_TTS_VOICE", "ru-RU-DmitryNeural")
             self.style = "documentary"
@@ -425,6 +432,18 @@ class TTSSynthesizer:
         cleaned_text = self.clean_voiceover_text(text)
         if not cleaned_text:
             raise ValueError("Текст для озвучки пуст после очистки.")
+
+        # Синтез через локальный нейросетевой Coqui XTTS-v2 на видеокарте
+        if self.engine == "coqui":
+            from modules.coqui_tts_client import CoquiTTSClient
+            client = CoquiTTSClient()
+            return client.synthesize_to_file(
+                text=cleaned_text,
+                output_path=output_path,
+                voice_sample_name=self.voice if (self.voice and self.voice.endswith((".wav", ".mp3"))) else None,
+                language="ru",
+                progress_callback=progress_callback
+            )
 
         chunks = self.split_into_chunks(cleaned_text, max_chars=self.chunk_size)
         if not chunks:
