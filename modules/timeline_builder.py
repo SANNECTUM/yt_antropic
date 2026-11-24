@@ -140,6 +140,16 @@ class TimelineBuilder:
         if not scenes_with_vis:
             raise RuntimeError("Нет ни одного кадра для монтажа. Запустите Автопилот Pexels в Шаге 2.")
 
+        # Если force=True, удаляем старые клипы из кеша, чтобы гарантировать чистоту сборки
+        if force:
+            for s in scenes_with_vis:
+                old_clip = self.render_dir / f"clip_{s.index:03d}.mp4"
+                if old_clip.exists():
+                    try:
+                        old_clip.unlink()
+                    except Exception:
+                        pass
+
         # Рендерим только сцены с собственными кадрами (без дублирования и искусственного повторения одного видео!)
         total_scenes = len(scenes_with_vis)
         done = 0
@@ -157,7 +167,7 @@ class TimelineBuilder:
         if not clip_paths:
             raise RuntimeError("Нет ни одного клипа для склейки. Назначьте кадры сценам.")
 
-        # 2. Concat через FFmpeg
+        # 2. Concat через FFmpeg (сверхбыстрое копирование без перекодирования)
         if progress_callback:
             progress_callback(0.82, "Склейка клипов в единый видеоряд...")
 
@@ -175,19 +185,15 @@ class TimelineBuilder:
         ]
         subprocess.run(cmd, capture_output=True, errors="ignore")
 
-        # 3. Валидация фактической длительности полученного видеотрека
-        expected_dur = sum(s.effective_duration for s in scenes)
-        actual_dur = self.get_video_duration(output)
-
-        # Если concat copy дал сбой или оборвался раньше времени
-        if not output.exists() or output.stat().st_size < 5000 or (actual_dur < (expected_dur * 0.8) and len(clip_paths) > 1):
+        # 3. Валидация: если concat copy не создал файл или файл поврежден
+        if not output.exists() or output.stat().st_size < 5000:
             if progress_callback:
                 progress_callback(0.88, "Надежная повторная склейка видеоряда...")
             cmd_fb = [
                 self.ffmpeg, "-y",
                 "-f", "concat", "-safe", "0",
                 "-i", str(concat_list),
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
                 "-threads", "2",
                 "-pix_fmt", "yuv420p",
                 "-r", str(FPS),

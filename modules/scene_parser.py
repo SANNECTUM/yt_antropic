@@ -185,11 +185,12 @@ class SceneBlock:
         title: str,
         text: str,
         duration: float,
-        search_query: str,
+        search_query: str = "",
         visual_path: Optional[str] = None,
         effect: str = "ken_burns_in",
         custom_duration: Optional[float] = None,
         prompt: Optional[str] = None,
+        **kwargs,
     ):
         self.index = index
         self.title = title
@@ -199,7 +200,7 @@ class SceneBlock:
         self.visual_path = visual_path        # путь к выбранному файлу (jpg/mp4)
         self.effect = effect                  # ken_burns_in | ken_burns_out | fade | slide_left | slide_right | none
         self.custom_duration = custom_duration  # переопределённый тайминг пользователем
-        self.prompt = prompt or ""            # художественное описание / промпт для B-Roll
+        self.prompt = prompt or kwargs.get("visual_prompt", "")            # художественное описание / промпт для B-Roll
 
     def get_resolved_visual_path(self, project_dir: Path) -> Optional[Path]:
         return resolve_visual_path(self.visual_path, project_dir)

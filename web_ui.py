@@ -420,7 +420,10 @@ with tab_stepwise:
                             help="Gemini сопоставит текст каждой реплики с точным английским B-roll запросом для Pexels"
                         )
 
-                    if st.button("🎯 СФОРМИРОВАТЬ РАСКАДРОВКУ С ТОЧНЫМИ ТАЙМКОДАМИ (100% СОВПАДЕНИЕ ЗВУКА И ВИДЕО)", type="primary", use_container_width=True, key="btn_run_audio_align"):
+                    if af_dur <= 0:
+                        st.warning("⚠️ Выбранный аудиофайл пуст или не содержит звуковых данных. Пожалуйста, загрузите валидный MP3/WAV файл либо воспользуйтесь «Режимом 2» (нарезка без аудиофайла) ниже.")
+                    else:
+                        if st.button("🎯 СФОРМИРОВАТЬ РАСКАДРОВКУ С ТОЧНЫМИ ТАЙМКОДАМИ (100% СОВПАДЕНИЕ ЗВУКА И ВИДЕО)", type="primary", use_container_width=True, key="btn_run_audio_align"):
                         p_bar_af = st.progress(0, text="Инициализация выравнивания сценария под аудио...")
                         status_af = st.empty()
 
@@ -1125,7 +1128,7 @@ with tab_stepwise:
 
                 col_rb1, col_rb2 = st.columns([2, 1])
                 with col_rb1:
-                    force_rerender = st.checkbox("🔄 Перерендерить уже готовые клипы", value=False, key="sw_force_render")
+                    force_rerender = st.checkbox("🔄 Перерендерить уже готовые клипы (без кеша)", value=True, key="sw_force_render")
                 with col_rb2:
                     render_res = st.selectbox("Разрешение:", ["1280x720 (HD) — Быстро (рекомендуется)", "1920x1080 (Full HD)"], key="sw_res")
 
@@ -1141,12 +1144,15 @@ with tab_stepwise:
                         status_sw.info(f"⚙️ {msg}")
 
                     try:
+                        import gc
+                        gc.collect()
                         track = tl_builder.build_videotrack(
                             target_scenes,
                             progress_callback=on_tl_prog,
                             force=force_rerender,
                             resolution=res_tuple
                         )
+                        gc.collect()
                         prog_sw.progress(100, "✅ Видеоряд готов!")
                         status_sw.success(f"🎬 Видеоряд создан: `{track.name}` ({track.stat().st_size // (1024*1024)} MB)")
                         st.rerun()

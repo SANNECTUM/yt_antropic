@@ -34,16 +34,23 @@ task_*.txt
 original_prompts_*.txt
 
 # Project generated media (heavy video/audio/image files)
-projects/**/visuals/
 projects/**/audio/
 projects/**/video/
 projects/**/cover/
 projects/**/thumbnails/
 projects/**/.thumbs/
-projects/**/*.mp4
+projects/**/render/
 projects/**/*.mp3
 projects/**/*.wav
 projects/**/*.jpg
 projects/**/*.jpeg
 projects/**/*.png
 projects/**/*.webp
+
+# Default ignore all mp4s except anxiety demo clips
+projects/**/*.mp4
+!projects/anxiety/visuals/scene_001.mp4
+!projects/anxiety/visuals/scene_002.mp4
+!projects/anxiety/visuals/scene_003.mp4
+!projects/anxiety/visuals/scene_004.mp4
+!projects/anxiety/visuals/scene_005.mp4
