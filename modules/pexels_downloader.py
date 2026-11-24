@@ -96,12 +96,65 @@ class PexelsDownloader:
         if not clean_q:
             return []
 
+        # 1. Очистка запроса: убираем стоп-слова, которые сбивают стоковый поиск Pexels
+        # Слово "lying" на английском двусмысленно и часто путается Pexels с "ложь/негатив/пленка"
+        stop_words = {"with", "on", "the", "a", "an", "in", "at", "of", "and", "or", "by", "for", "from", "lying"}
+        words = [w for w in clean_q.split() if w.lower() not in stop_words]
+        if not words:
+            words = clean_q.split()
+
+        # Лаконичные 2-3 слова дают в 10 раз более точные результаты на Pexels
+        search_q = " ".join(words[:3])
+
+        # 2. Если задан официальный API ключ Pexels, используем официальный v1 API
+        import config
+        if config.PEXELS_API_KEY:
+            try:
+                import urllib.parse
+                api_url = f"https://api.pexels.com/v1/videos/search?query={urllib.parse.quote(search_q)}&orientation={orientation}&per_page={limit}"
+                sess = self._get_session()
+                resp = sess.get(api_url, headers={"Authorization": config.PEXELS_API_KEY}, timeout=15)
+                if resp.status_code == 200:
+                    vids_data = resp.json().get("videos", [])
+                    results_api = []
+                    for v in vids_data:
+                        v_files = v.get("video_files", [])
+                        if not v_files:
+                            continue
+                        best_link = None
+                        best_w = 0
+                        for vf in v_files:
+                            w = vf.get("width") or 0
+                            l = vf.get("link")
+                            if not l:
+                                continue
+                            if 1280 <= w <= 2048:
+                                best_link = l
+                                best_w = w
+                                break
+                            elif w > best_w:
+                                best_link = l
+                                best_w = w
+                        if best_link:
+                            results_api.append({
+                                "id": str(v.get("id")),
+                                "title": v.get("url", "").split("/")[-2].replace("-", " ").title() if v.get("url") else search_q.title(),
+                                "duration": v.get("duration", 15),
+                                "width": best_w or 1920,
+                                "preview_url": v.get("image", ""),
+                                "download_url": best_link,
+                            })
+                    if results_api:
+                        return results_api[:limit]
+            except Exception as e:
+                logger.warning(f"[PexelsDownloader] Ошибка официального API Pexels: {e}")
+
+        # 3. Веб-поиск (без официального API ключа)
         params = {
-            "query": clean_q,
+            "query": search_q,
             "page": 1,
             "per_page": min(limit * 2, 24),
             "orientation": orientation,
-            "seo_tags": "true"
         }
 
         try:

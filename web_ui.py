@@ -785,11 +785,42 @@ with tab_stepwise:
                             "📁 Загрузить файл"
                         ])
 
-                        # --- ВКЛАДКА 0: PEXELS B-ROLL (FULL HD VIDEO) ---
+                            # --- ВКЛАДКА 0: PEXELS B-ROLL (FULL HD VIDEO) ---
                         with search_tabs[0]:
                             st.caption("Поиск и скачивание кинематографичных Full HD видеоклипов (16:9):")
                             px_q = st.text_input("Поисковый запрос Pexels (English):", value=s.search_query, key=f"sw_px_q_{s.index}")
                             
+                            # Быстрые подсказки точных 2-3 словных тегов
+                            s_lower = (s.search_query or "").lower()
+                            sug_list = []
+                            if any(k in s_lower for k in ["couch", "sofa", "bed", "lying", "sleep"]):
+                                sug_list = ["anxious man on couch", "man on sofa", "tired person couch"]
+                            elif any(k in s_lower for k in ["laptop", "desk", "work", "office", "head"]):
+                                sug_list = ["stressed person laptop", "late night work desk", "exhausted worker"]
+                            elif any(k in s_lower for k in ["car", "gauge", "fuel", "drive"]):
+                                sug_list = ["car dashboard night", "empty fuel gauge", "city rain night"]
+                            
+                            if sug_list:
+                                st.caption("💡 Быстрые точные теги (в 1 клик):")
+                                sug_cols = st.columns(len(sug_list))
+                                for si, sug in enumerate(sug_list):
+                                    with sug_cols[si]:
+                                        if st.button(sug, key=f"sug_{s.index}_{si}", use_container_width=True):
+                                            s.search_query = sug
+                                            scenes_changed = True
+                                            with st.spinner(f"Поиск '{sug}' на Pexels..."):
+                                                cur_px = PexelsDownloader(proxy=st.session_state.get("pexels_proxy_input") or None)
+                                                found_vids = cur_px.search_videos(sug, limit=6)
+                                                for fv in found_vids:
+                                                    if fv.get("preview_url"):
+                                                        b_img = cur_px.fetch_image_bytes(fv["preview_url"])
+                                                        if b_img:
+                                                            fv["thumb_bytes"] = b_img
+                                                st.session_state[f"sw_px_res_{s.index}"] = found_vids
+                                                all_cached_cand[str(s.index)] = found_vids
+                                                PexelsDownloader.save_cached_candidates(pm.project_dir, all_cached_cand)
+                                            st.rerun()
+
                             c_px_act1, c_px_act2 = st.columns([1, 1])
                             with c_px_act1:
                                 search_px_btn = st.button("🔎 Найти видео", key=f"sw_px_search_{s.index}", use_container_width=True)
@@ -807,7 +838,7 @@ with tab_stepwise:
                             if search_px_btn:
                                 with st.spinner("Поиск на Pexels..."):
                                     cur_px = PexelsDownloader(proxy=st.session_state.get("pexels_proxy_input") or None)
-                                    found_vids = cur_px.search_videos(px_q, limit=4)
+                                    found_vids = cur_px.search_videos(px_q, limit=6)
                                     for fv in found_vids:
                                         if fv.get("preview_url"):
                                             b_img = cur_px.fetch_image_bytes(fv["preview_url"])
@@ -825,9 +856,21 @@ with tab_stepwise:
                                         c_vi1, c_vi2 = st.columns([1, 2])
                                         with c_vi1:
                                             p_url = vid.get("preview_url")
-                                            if p_url:
-                                                st.image(p_url, use_container_width=True)
-                                            else:
+                                            t_bytes = vid.get("thumb_bytes")
+                                            img_shown = False
+                                            if t_bytes:
+                                                try:
+                                                    st.image(t_bytes, use_container_width=True)
+                                                    img_shown = True
+                                                except Exception:
+                                                    pass
+                                            if not img_shown and p_url:
+                                                try:
+                                                    st.image(p_url, use_container_width=True)
+                                                    img_shown = True
+                                                except Exception:
+                                                    pass
+                                            if not img_shown:
                                                 st.caption("🎬 16:9 Video")
                                         with c_vi2:
                                             st.markdown(f"**{vid.get('title', 'Video')}**")
