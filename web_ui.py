@@ -420,10 +420,11 @@ with tab_stepwise:
                             help="Gemini сопоставит текст каждой реплики с точным английским B-roll запросом для Pexels"
                         )
 
-                    if af_dur <= 0:
-                        st.warning("⚠️ Выбранный аудиофайл пуст или не содержит звуковых данных. Пожалуйста, загрузите валидный MP3/WAV файл либо воспользуйтесь «Режимом 2» (нарезка без аудиофайла) ниже.")
-                    else:
-                        if st.button("🎯 СФОРМИРОВАТЬ РАСКАДРОВКУ С ТОЧНЫМИ ТАЙМКОДАМИ (100% СОВПАДЕНИЕ ЗВУКА И ВИДЕО)", type="primary", use_container_width=True, key="btn_run_audio_align"):
+                    btn_align_disabled = (af_dur <= 0)
+                    if btn_align_disabled:
+                        st.warning("⚠️ Выбранный аудиофайл пуст или не содержит звуковых данных. Загрузите валидный MP3/WAV файл либо воспользуйтесь «Режимом 2» (нарезка без аудиофайла) ниже.")
+
+                    if st.button("🎯 СФОРМИРОВАТЬ РАСКАДРОВКУ С ТОЧНЫМИ ТАЙМКОДАМИ (100% СОВПАДЕНИЕ ЗВУКА И ВИДЕО)", type="primary", use_container_width=True, key="btn_run_audio_align", disabled=btn_align_disabled):
                         p_bar_af = st.progress(0, text="Инициализация выравнивания сценария под аудио...")
                         status_af = st.empty()
 
