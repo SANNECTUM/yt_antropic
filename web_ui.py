@@ -616,9 +616,9 @@ with tab_stepwise:
 
                 with col_px_act3:
                     download_all_btn = st.button(
-                        f"🚀 3. АВТОПИЛОТ: СКАЧАТЬ ПЕРВОЕ ВИДЕО ДЛЯ ВСЕХ СЦЕН",
+                        f"🚀 3. АВТОПИЛОТ: СКАЧАТЬ УНИКАЛЬНЫЕ ВИДЕО ДЛЯ ВСЕХ СЦЕН",
                         type="primary",
-                        help="Полный автомат: ищет видео для каждой сцены, сразу скачивает первый (лучший) ролик в 1080p и монтирует в проект!",
+                        help="Полный автомат: находит и скачивает разные видео для каждой сцены без повторов (Full HD MP4)!",
                         use_container_width=True,
                         key="btn_download_all_px"
                     )
@@ -661,6 +661,13 @@ with tab_stepwise:
                     success_count = 0
                     total_sc = len(scenes_sw)
                     all_cached_cand = PexelsDownloader.load_cached_candidates(pm.project_dir)
+                    used_video_ids = set()
+
+                    # Собираем ID уже имеющихся видео, чтобы не повторять их
+                    for sc_item in scenes_sw:
+                        cand = all_cached_cand.get(str(sc_item.index), [])
+                        if cand and cand[0].get("id"):
+                            used_video_ids.add(cand[0]["id"])
 
                     for idx, s in enumerate(scenes_sw):
                         dest_file = pm.visuals_dir / f"scene_{s.index:03d}.mp4"
@@ -674,17 +681,27 @@ with tab_stepwise:
                         q = s.search_query.strip() or "cinematic documentary"
                         p_bar.progress(int((idx + 1) / total_sc * 100), text=f"Сцена {s.index}/{total_sc}: автопоиск Pexels: '{q}'...")
 
-                        vids = px_downloader.search_videos(q, limit=3)
+                        vids = px_downloader.search_videos(q, limit=5)
                         if not vids:
                             simple_q = " ".join(q.split()[:2])
                             if simple_q != q:
-                                vids = px_downloader.search_videos(simple_q, limit=2)
+                                vids = px_downloader.search_videos(simple_q, limit=3)
 
                         if vids:
                             all_cached_cand[str(s.index)] = vids
-                            top_vid = vids[0]  # Сразу берем первое в списке!
-                            p_bar.progress(int((idx + 1) / total_sc * 100), text=f"Сцена {s.index}/{total_sc}: скачивание первого видео (1080p MP4)...")
-                            ok = px_downloader.download_video_file(top_vid["download_url"], dest_file)
+                            # Выбираем видео, которое еще не использовалось в других сценах (100% уникальность!)
+                            chosen_vid = None
+                            for v in vids:
+                                v_id = v.get("id") or v.get("download_url")
+                                if v_id not in used_video_ids:
+                                    chosen_vid = v
+                                    used_video_ids.add(v_id)
+                                    break
+                            if not chosen_vid:
+                                chosen_vid = vids[0]
+
+                            p_bar.progress(int((idx + 1) / total_sc * 100), text=f"Сцена {s.index}/{total_sc}: скачивание уникального видео (1080p MP4)...")
+                            ok = px_downloader.download_video_file(chosen_vid["download_url"], dest_file)
                             if ok:
                                 s.visual_path = rel_path
                                 success_count += 1

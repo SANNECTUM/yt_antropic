@@ -140,19 +140,12 @@ class TimelineBuilder:
         if not scenes_with_vis:
             raise RuntimeError("Нет ни одного кадра для монтажа. Запустите Автопилот Pexels в Шаге 2.")
 
-        # Автоматическое циклирование кадров, если видео скачаны только для части сцен:
-        # Это предотвращает обрезание видео до 30 секунд и гарантирует полное покрытие!
-        if len(scenes_with_vis) < len(scenes):
-            for idx, s in enumerate(scenes):
-                if not resolve_visual_path(s.visual_path, self.project_dir):
-                    donor = scenes_with_vis[idx % len(scenes_with_vis)]
-                    s.visual_path = donor.visual_path
-
-        total_scenes = len(scenes)
+        # Рендерим только сцены с собственными кадрами (без дублирования и искусственного повторения одного видео!)
+        total_scenes = len(scenes_with_vis)
         done = 0
 
         clip_paths: List[Path] = []
-        for s in scenes:
+        for s in scenes_with_vis:
             if progress_callback:
                 progress_callback(0.05 + 0.75 * (done / max(total_scenes, 1)),
                                   f"Рендер клипа {done + 1}/{total_scenes}: {s.title[:40]}")
@@ -236,18 +229,11 @@ class TimelineBuilder:
             progress_callback(0.3, "Сведение видео с аудиодорожкой...")
 
         if audio_path and audio_path.exists():
-            from modules.audio_aligner import get_audio_duration
-            video_dur = self.get_video_duration(videotrack)
-            audio_dur = get_audio_duration(audio_path)
-
-            # Если видеоряд короче аудио (например видео 40 мин, а аудио 48 мин),
-            # зацикливаем видеоряд через -stream_loop, чтобы звук диктора не обрезался!
-            input_video_args = ["-stream_loop", "-1", "-i", str(videotrack)] if video_dur < (audio_dur - 1.0) else ["-i", str(videotrack)]
-
-            # Быстрое сведение без лишнего перекодирования видеоряда
+            # Быстрое сведение без зацикливания: видео играет ровно один раз,
+            # звук обрезается строго по окончанию видеоряда (-shortest)!
             cmd = [
                 self.ffmpeg, "-y",
-                *input_video_args,
+                "-i", str(videotrack),
                 "-i", str(audio_path),
                 "-c:v", "copy",
                 "-c:a", "aac", "-b:a", "192k",
@@ -260,9 +246,10 @@ class TimelineBuilder:
             if not output.exists() or output.stat().st_size < 10000:
                 cmd_fallback = [
                     self.ffmpeg, "-y",
-                    *input_video_args,
+                    "-i", str(videotrack),
                     "-i", str(audio_path),
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                    "-threads", "2",
                     "-c:a", "aac", "-b:a", "192k",
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-pix_fmt", "yuv420p",

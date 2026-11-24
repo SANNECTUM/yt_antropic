@@ -66,15 +66,29 @@ def render_clip(
     # 1. ИСТОЧНИК — ВИДЕОФАЙЛ (MP4 / MOV / WEBM)
     # ================================================================
     if ext in (".mp4", ".mov", ".avi", ".webm", ".mkv"):
+        # Определяем фактическую длительность исходного видеофайла
+        source_dur = 0.0
+        try:
+            dur_cmd = [ffmpeg, "-i", str(source_path.resolve())]
+            r_dur = subprocess.run(dur_cmd, capture_output=True, text=True, errors="ignore")
+            import re
+            m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", r_dur.stderr)
+            if m:
+                source_dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        except Exception:
+            pass
+
+        # Если видео короче нужной сцены, берем его естественную длительность (НЕ зацикливаем и НЕ повторяем!)
+        target_clip_dur = min(duration, source_dur) if source_dur > 0 else duration
+
         # Масштабирование с заполнением 16:9 и центральным кропом
         scale_crop = f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}"
         vf_chain = scale_crop + fade_str
 
         cmd = [
             ffmpeg, "-y",
-            "-stream_loop", "-1",       # Бесшовный цикл если клип короче нужной сцены
             "-i", str(source_path.resolve()),
-            "-t", f"{duration:.3f}",     # Строгая длительность клипа
+            "-t", f"{target_clip_dur:.3f}",     # Строго одно воспроизведение (без повтора)
             "-vf", vf_chain,
             "-c:v", "libx264",
             "-preset", "ultrafast",     # Максимальная скорость рендера
@@ -92,13 +106,13 @@ def render_clip(
             # Fallback без fade_str если старая версия ffmpeg
             cmd_fallback = [
                 ffmpeg, "-y",
-                "-stream_loop", "-1",
                 "-i", str(source_path.resolve()),
-                "-t", f"{duration:.3f}",
+                "-t", f"{target_clip_dur:.3f}",
                 "-vf", scale_crop,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-crf", "22",
+                "-threads", "2",
                 "-pix_fmt", "yuv420p",
                 "-r", str(fps),
                 "-an",
