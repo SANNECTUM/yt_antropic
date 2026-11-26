@@ -1,5 +1,10 @@
 {
   "topic": "Тревога, лень и прокрастинация (Anxiety & Procrastination)",
   "genre": "Детективное расследование / True Crime",
-  "minutes": 15
+  "minutes": 5,
+  "include_tts": true,
+  "tts_engine": "coqui",
+  "tts_voice": "dmitry_narrator.wav",
+  "visual_mode": "pexels",
+  "article_url": ""
 }
