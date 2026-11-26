@@ -9,6 +9,12 @@ scripts/xtts_server.py
 
 import os
 import sys
+
+# Отключаем нестабильный протокол hf_xet (часто зависает на Windows) и лишние предупреждения
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("COQUI_TOS_AGREED", "1")
+
 import json
 import base64
 import argparse

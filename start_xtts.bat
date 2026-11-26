@@ -32,6 +32,8 @@ if errorlevel 1 (
 )
 
 set COQUI_TOS_AGREED=1
+set HF_HUB_DISABLE_XET=1
+set HF_HUB_DISABLE_SYMLINKS_WARNING=1
 echo [*] Starting XTTS server on http://127.0.0.1:8020/ ...
 echo.
 "%PY_XTTS%" scripts\xtts_server.py --port 8020
