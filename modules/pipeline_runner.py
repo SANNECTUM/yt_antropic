@@ -235,6 +235,15 @@ class VideoPipelineRunner:
         audio_dur = est_duration
 
         if include_tts:
+            # Если выбран Coqui XTTS, но локальный сервер не запущен или не готов — автоматический фолбэк на Edge TTS
+            if tts_engine == "coqui":
+                from modules.coqui_tts_client import CoquiTTSClient
+                if not CoquiTTSClient().is_running():
+                    if progress_callback:
+                        progress_callback(0.26, "⚠️ Coqui XTTS не готов — автоматическое переключение на быстрый Microsoft Edge TTS...")
+                    tts_engine = "edge"
+                    tts_voice = "ru-RU-DmitryNeural"
+
             if progress_callback:
                 progress_callback(0.28, f"Шаг {cur_step}/{total_steps}: Озвучка диктором ({tts_engine.upper()})...")
 

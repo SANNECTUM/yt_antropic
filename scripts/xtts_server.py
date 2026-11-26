@@ -26,17 +26,21 @@ VOICES_DIR.mkdir(parents=True, exist_ok=True)
 # Глобальный инстанс модели XTTS
 _XTTS_MODEL = None
 _DEVICE = "cpu"
+_LOAD_ERROR = None
 
 
 def get_xtts_model():
     """Ленивая загрузка модели XTTS-v2 в видеопамять (CUDA)."""
-    global _XTTS_MODEL, _DEVICE
+    global _XTTS_MODEL, _DEVICE, _LOAD_ERROR
     if _XTTS_MODEL is not None:
         return _XTTS_MODEL
 
     try:
         import torch
         from TTS.api import TTS
+
+        # Автоматическое согласие с некоммерческой лицензией Coqui при скачивании весов модели
+        os.environ["COQUI_TOS_AGREED"] = "1"
 
         _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"[*] Инициализация Coqui XTTS-v2 на устройстве: {_DEVICE.upper()}...")
@@ -46,9 +50,11 @@ def get_xtts_model():
             print(f"[*] Видеокарта: {gpu_name} ({vram_gb:.1f} GB VRAM)")
 
         _XTTS_MODEL = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(_DEVICE)
+        _LOAD_ERROR = None
         print("[+] Модель Coqui XTTS-v2 успешно загружена в память и готова к синтезу!")
         return _XTTS_MODEL
     except Exception as e:
+        _LOAD_ERROR = str(e)
         print(f"[-] Ошибка загрузки модели XTTS: {e}")
         raise
 
@@ -65,6 +71,23 @@ class XTTSRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            ready_str = "✅ ГОТОВА К СИНТЕЗУ" if _XTTS_MODEL is not None else f"❌ ОШИБКА ЗАГРУЗКИ ({_LOAD_ERROR})"
+            html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'><title>Coqui XTTS-v2 Server</title>
+            <style>body{{background:#12121a;color:#eee;font-family:sans-serif;padding:40px;max-width:700px;margin:auto;}}
+            .card{{background:#1d1d2b;padding:24px;border-radius:12px;border:1px solid #333;}}</style></head>
+            <body><div class='card'><h2>🎙️ Локальный сервер Coqui XTTS-v2</h2>
+            <p><b>Статус модели:</b> {ready_str}</p>
+            <p><b>Устройство:</b> {_DEVICE.upper()}</p>
+            <p><b>API Эндпоинты:</b> <code>GET /health</code>, <code>GET /voices</code>, <code>POST /synthesize</code></p>
+            </div></body></html>"""
+            self.wfile.write(html.encode("utf-8"))
+            return
+
         if self.path == "/health":
             self.send_response(200)
             self._send_cors_headers()
@@ -72,15 +95,21 @@ class XTTSRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             gpu_info = "CPU"
+            has_deps = False
             try:
                 import torch
+                import TTS
+                has_deps = True
                 if torch.cuda.is_available():
                     gpu_info = torch.cuda.get_device_name(0)
-            except Exception:
-                pass
+            except Exception as err:
+                gpu_info = f"No torch/TTS ({err})"
 
+            is_ready = (_XTTS_MODEL is not None) or (has_deps and _LOAD_ERROR is None)
             resp = {
-                "status": "ok",
+                "status": "ok" if is_ready else "error",
+                "ready": is_ready,
+                "error": _LOAD_ERROR,
                 "device": _DEVICE,
                 "gpu": gpu_info,
                 "model": "xtts_v2",

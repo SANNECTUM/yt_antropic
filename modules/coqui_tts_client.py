@@ -28,13 +28,13 @@ class CoquiTTSClient:
         self.voices_dir.mkdir(parents=True, exist_ok=True)
 
     def is_running(self) -> bool:
-        """Проверяет, запущен ли локальный сервер Coqui XTTS на порту 8020."""
+        """Проверяет, запущен ли локальный сервер Coqui XTTS на порту 8020 и готова ли модель."""
         try:
             req = urllib.request.Request(f"{self.base_url}/health", headers={"User-Agent": "CoquiClient"})
             with urllib.request.urlopen(req, timeout=1.2) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
-                    return data.get("status") == "ok"
+                    return data.get("status") == "ok" and data.get("ready", True)
         except Exception:
             pass
         return False
