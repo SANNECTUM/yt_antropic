@@ -1,19 +1,16 @@
 @echo off
-chcp 65001 >nul
 title Coqui XTTS-v2 Local Server (RTX 4060 Ti)
 
 echo ================================================================
-echo   🎙️  ЗАПУСК ЛОКАЛЬНОГО СЕРВЕРА СИНТЕЗА РЕЧИ COQUI XTTS-v2
-echo   🚀  Ускорение на видеокарте NVIDIA (RTX 4060 Ti)
+echo   COQUI XTTS-v2 LOCAL SERVER (NVIDIA RTX 4060 Ti)
 echo ================================================================
 echo.
 
 set "PY_XTTS=.venv_xtts\Scripts\python.exe"
 set "PIP_XTTS=.venv_xtts\Scripts\pip.exe"
 
-:: Создаем выделенное окружение Python 3.11 для Coqui XTTS, если оно еще не создано
 if not exist "%PY_XTTS%" (
-    echo [*] Создание выделенного окружения .venv_xtts на базе Python 3.11...
+    echo [*] Creating Python 3.11 environment .venv_xtts...
     if exist "C:\Users\berze\AppData\Local\Programs\Python\Python311\python.exe" (
         "C:\Users\berze\AppData\Local\Programs\Python\Python311\python.exe" -m venv .venv_xtts
     ) else (
@@ -22,22 +19,20 @@ if not exist "%PY_XTTS%" (
 )
 
 if not exist "%PY_XTTS%" (
-    echo [ОШИБКА] Не удалось найти или создать окружение Python 3.11 (.venv_xtts).
+    echo [ERROR] Python 3.11 environment .venv_xtts not found.
     pause
     exit /b 1
 )
 
-:: Проверяем наличие coqui-tts и torch с поддержкой CUDA
-"%PY_XTTS%" -c "import torch, TTS; assert torch.cuda.is_available()" >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [*] Проверка и установка PyTorch CUDA 12.1 и Coqui TTS в .venv_xtts...
-    "%PIP_XTTS%" install coqui-tts
+"%PY_XTTS%" -c "import torch, TTS" >nul 2>&1
+if errorlevel 1 (
+    echo [*] Installing PyTorch CUDA 12.1 and Coqui TTS into .venv_xtts...
     "%PIP_XTTS%" install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+    "%PIP_XTTS%" install coqui-tts
 )
 
 set COQUI_TOS_AGREED=1
-echo [*] Запуск сервера на порту 8020...
-echo [*] Адрес: http://127.0.0.1:8020/
+echo [*] Starting XTTS server on http://127.0.0.1:8020/ ...
 echo.
 "%PY_XTTS%" scripts\xtts_server.py --port 8020
 
