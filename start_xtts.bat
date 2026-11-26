@@ -24,11 +24,11 @@ if not exist "%PY_XTTS%" (
     exit /b 1
 )
 
-"%PY_XTTS%" -c "import torch, TTS" >nul 2>&1
+"%PY_XTTS%" -c "import torch, six, TTS" >nul 2>&1
 if errorlevel 1 (
     echo [*] Installing PyTorch CUDA 12.1 and Coqui TTS into .venv_xtts...
     "%PIP_XTTS%" install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-    "%PIP_XTTS%" install coqui-tts
+    "%PIP_XTTS%" install six coqui-tts
 )
 
 set COQUI_TOS_AGREED=1
