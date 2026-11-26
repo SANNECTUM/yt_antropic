@@ -310,21 +310,35 @@ class VideoPipelineRunner:
                     s.search_query = queries[i]
 
             # 3. Автопилот Pexels: скачиваем уникальные ролики БЕЗ ПОВТОРОВ
+            # Если www.pexels.com заблокирован провайдером (нет VPN / PEXELS_API_KEY), автоматически подхватываем локальные файлы или Bing/Yandex/AI!
             if progress_callback:
-                progress_callback(0.62, f"Шаг {cur_step}/{total_steps}: Автопилот Pexels скачивает видео...")
+                progress_callback(0.62, f"Шаг {cur_step}/{total_steps}: Автопилот подбирает визуалы под сцены...")
 
+            from modules.web_image_search import WebImageSearcher
+            web_searcher = WebImageSearcher()
             used_ids = set()
+            used_img_urls = set()
+            pexels_fail_streak = 0
             total_sc = len(aligned_scenes)
+
             for idx, s in enumerate(aligned_scenes):
                 dest_file = self.pm.visuals_dir / f"scene_{s.index:03d}.mp4"
-                rel_path = f"visuals/{dest_file.name}"
+                dest_img = self.pm.visuals_dir / f"scene_{s.index:03d}.jpg"
                 q = s.search_query.strip() or "cinematic documentary"
 
                 if progress_callback:
                     p = 0.62 + 0.16 * ((idx + 1) / max(total_sc, 1))
-                    progress_callback(p, f"Кадр {idx+1}/{total_sc}: Pexels видео '{q}'...")
+                    progress_callback(p, f"Кадр {idx+1}/{total_sc}: подбор визуала '{q}'...")
 
-                vids = px_downloader.search_videos(q, limit=6)
+                # Попытка 1: Pexels видео (если Pexels доступен)
+                vids = []
+                if pexels_fail_streak < 2:
+                    vids = px_downloader.search_videos(q, limit=6)
+                    if not vids:
+                        pexels_fail_streak += 1
+                    else:
+                        pexels_fail_streak = 0
+
                 if vids:
                     chosen = None
                     for v in vids:
@@ -336,7 +350,56 @@ class VideoPipelineRunner:
                     if not chosen:
                         chosen = vids[0]
                     if px_downloader.download_video_file(chosen["download_url"], dest_file):
-                        s.visual_path = rel_path
+                        s.visual_path = f"visuals/{dest_file.name}"
+                        continue
+
+                # Попытка 2: Если на диске уже есть готовый файл для этой сцены — используем его
+                if dest_file.exists() and dest_file.stat().st_size > 10000:
+                    s.visual_path = f"visuals/{dest_file.name}"
+                    continue
+                if dest_img.exists() and dest_img.stat().st_size > 5000:
+                    s.visual_path = f"visuals/{dest_img.name}"
+                    continue
+
+                # Попытка 3: Авто-фолбэк на поиск изображений (Bing / Yandex) без VPN
+                got_img = False
+                for eng in ("bing", "yandex"):
+                    try:
+                        img_results = web_searcher.search(q, engine=eng, limit=6)
+                        for ir in img_results:
+                            u = ir.get("image_url") or ""
+                            if not u or u in used_img_urls:
+                                continue
+                            try:
+                                web_searcher.download_image(u, dest_img, thumb_url=ir.get("thumb_url"))
+                                if dest_img.exists() and dest_img.stat().st_size > 5000:
+                                    used_img_urls.add(u)
+                                    s.visual_path = f"visuals/{dest_img.name}"
+                                    s.effect = "ken_burns_in" if (idx % 2 == 0) else "ken_burns_out"
+                                    got_img = True
+                                    break
+                            except Exception:
+                                continue
+                        if got_img:
+                            break
+                    except Exception:
+                        continue
+
+                # Попытка 4: Если и веб-поиск не дал фото — генерация 16:9 через ImageGenerator
+                if not got_img:
+                    try:
+                        self.image_gen.generate_single_image(
+                            f"{q}, cinematic documentary photography, 16:9, moody lighting",
+                            dest_img,
+                            width=1280,
+                            height=720,
+                            title=s.title
+                        )
+                        if dest_img.exists() and dest_img.stat().st_size > 5000:
+                            s.visual_path = f"visuals/{dest_img.name}"
+                            s.effect = "ken_burns_in" if (idx % 2 == 0) else "ken_burns_out"
+                    except Exception:
+                        pass
 
             save_scenes(aligned_scenes, self.pm.project_dir)
             tl_builder.save_timeline(aligned_scenes)
