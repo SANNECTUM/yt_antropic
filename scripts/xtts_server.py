@@ -173,11 +173,23 @@ class XTTSRequestHandler(BaseHTTPRequestHandler):
                     tmp_out = tf.name
 
                 try:
+                    temperature = float(data.get("temperature", 0.55))
+                    speed = float(data.get("speed", 1.06))
+                    repetition_penalty = float(data.get("repetition_penalty", 5.0))
+                    top_p = float(data.get("top_p", 0.80))
+                    top_k = int(data.get("top_k", 40))
+
                     tts.tts_to_file(
                         text=text,
                         speaker_wav=speaker_wav,
                         language=language,
-                        file_path=tmp_out
+                        file_path=tmp_out,
+                        split_sentences=True,
+                        temperature=temperature,
+                        speed=speed,
+                        repetition_penalty=repetition_penalty,
+                        top_p=top_p,
+                        top_k=top_k,
                     )
 
                     audio_bytes = Path(tmp_out).read_bytes()

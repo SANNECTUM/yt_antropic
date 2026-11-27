@@ -251,8 +251,8 @@ class CoquiTTSClient:
         return output_path
 
     @staticmethod
-    def _concat_audio_parts(parts: List[Path], output_path: Path):
-        """Склеивает аудиочасти через FFmpeg без потери качества."""
+    def _concat_audio_parts(parts: List[Path], output_path: Path, studio_mastering: bool = True):
+        """Склеивает аудиочасти через FFmpeg и применяет студийный мастеринг дикторского голоса."""
         if not parts:
             return
 
@@ -276,10 +276,24 @@ class CoquiTTSClient:
             ff, "-y",
             "-f", "concat", "-safe", "0",
             "-i", str(concat_list),
+        ]
+        if studio_mastering:
+            # Студийная обработка голоса диктора (убирает гул, добавляет плотный бас 130 Гц, чёткость 3.2 кГц, компрессию и громкость -16 LUFS для YouTube)
+            af_chain = (
+                "highpass=f=75,"
+                "equalizer=f=130:t=q:w=1.2:g=3.0,"
+                "equalizer=f=3200:t=q:w=1.5:g=2.0,"
+                "acompressor=threshold=-18dB:ratio=3:attack=10:release=120:makeup=2,"
+                "loudnorm=I=-16:TP=-1.5:LRA=11"
+            )
+            cmd.extend(["-af", af_chain])
+
+        cmd.extend([
+            "-ar", "44100",
             "-c:a", "libmp3lame" if output_path.suffix.lower() == ".mp3" else "pcm_s16le",
             "-b:a", "192k",
             str(output_path)
-        ]
+        ])
         subprocess.run(cmd, capture_output=True, errors="ignore")
         try:
             concat_list.unlink(missing_ok=True)
