@@ -2742,25 +2742,28 @@ with tab_files:
         with st.container(border=True):
             st.markdown("### 🎬 Главный релизный файл (Финальное видео):")
             c_fv_c1, c_fv_c2 = st.columns([1.5, 1])
+            v_size_mb = f_video_tab.stat().st_size / (1024 * 1024)
+            v_dur_str = format_duration(get_audio_duration(f_video_tab))
             with c_fv_c1:
-                st.video(str(f_video_tab))
+                st.caption(f"📁 `{f_video_tab.resolve()}`")
+                if v_size_mb <= 40 or st.checkbox("▶️ Показать плеер финального видео", value=False, key="tab_files_show_vid"):
+                    st.video(str(f_video_tab))
             with c_fv_c2:
-                v_size_mb = f_video_tab.stat().st_size / (1024 * 1024)
-                v_dur_str = format_duration(get_audio_duration(f_video_tab))
                 st.markdown(f"**Название:** `{pm.slug}_final.mp4`")
                 st.markdown(f"**Хронометраж:** `{v_dur_str}`")
                 st.markdown(f"**Размер файла:** `{v_size_mb:.1f} MB`")
                 st.write("")
-                with open(f_video_tab, "rb") as vf_tab:
-                    st.download_button(
-                        f"📥 СКАЧАТЬ ФИНАЛЬНОЕ ВИДЕО ({v_size_mb:.1f} MB)",
-                        data=vf_tab,
-                        file_name=f"{pm.slug}_final.mp4",
-                        mime="video/mp4",
-                        type="primary",
-                        use_container_width=True,
-                        key="tab_files_dl_final_video"
-                    )
+                if v_size_mb <= 40 or st.checkbox("⬇️ Подготовить кнопку скачивания", value=False, key="tab_files_prep_dl"):
+                    with open(f_video_tab, "rb") as vf_tab:
+                        st.download_button(
+                            f"📥 СКАЧАТЬ ФИНАЛЬНОЕ ВИДЕО ({v_size_mb:.1f} MB)",
+                            data=vf_tab,
+                            file_name=f"{pm.slug}_final.mp4",
+                            mime="video/mp4",
+                            type="primary",
+                            use_container_width=True,
+                            key="tab_files_dl_final_video"
+                        )
 
     # Скачивание всего проекта единым ZIP-архивом
     with st.expander("📦 Скачать весь проект в 1 ZIP-архив (видео, аудио, сценарий, промпты)", expanded=False):

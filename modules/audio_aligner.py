@@ -43,11 +43,11 @@ def get_audio_duration(audio_path: Path) -> float:
         except Exception:
             pass
 
-    # 2. ffmpeg
+    # 2. ffmpeg (мгновенное чтение метаданных заголовка БЕЗ декодирования файла!)
     ffmpeg = get_ffmpeg_exe()
-    cmd = [ffmpeg, "-i", str(audio_path), "-f", "null", "-"]
+    cmd = [ffmpeg, "-i", str(audio_path)]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, errors="ignore")
+        res = subprocess.run(cmd, capture_output=True, text=True, errors="ignore", timeout=5)
         m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", res.stderr)
         if m:
             hours = int(m.group(1))
