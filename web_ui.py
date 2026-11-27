@@ -302,18 +302,21 @@ with tab_autopilot:
         
         c_res_v, c_res_t = st.columns([1.5, 1])
         with c_res_v:
-            st.markdown("#### 🎬 Готовое смонтированное видео (1080p)")
-            st.video(str(final_video))
-            with open(final_video, "rb") as vf:
-                st.download_button(
-                    "⬇️ Скачать готовое видео (MP4)",
-                    data=vf,
-                    file_name=f"{pm.slug}_final.mp4",
-                    mime="video/mp4",
-                    type="primary",
-                    use_container_width=True,
-                    key="dl_auto_video"
-                )
+            f_mb = round(final_video.stat().st_size / (1024 * 1024), 1)
+            st.markdown(f"#### 🎬 Готовое смонтированное видео (`{f_mb} MB`)")
+            st.caption(f"📁 Файл на диске: `{final_video.resolve()}`")
+            if f_mb <= 40 or st.checkbox("▶️ Показать плеер и кнопку скачивания", value=False, key="show_auto_video_player"):
+                st.video(str(final_video))
+                with open(final_video, "rb") as vf:
+                    st.download_button(
+                        "⬇️ Скачать готовое видео (MP4)",
+                        data=vf,
+                        file_name=f"{pm.slug}_final.mp4",
+                        mime="video/mp4",
+                        type="primary",
+                        use_container_width=True,
+                        key="dl_auto_video"
+                    )
 
         with c_res_t:
             st.markdown("#### 🖼️ Финальная обложка (YouTube Thumbnail)")
@@ -1265,12 +1268,15 @@ with tab_stepwise:
             # Превью готового видеоряда
             videotrack = pm.project_dir / "render" / "videotrack.mp4"
             if videotrack.exists():
-                st.markdown("#### 🎥 Готовый видеоряд (без озвучки):")
-                st.video(str(videotrack))
-                with open(videotrack, "rb") as vf:
-                    st.download_button("⬇️ Скачать видеоряд (MP4)", data=vf,
-                                       file_name=f"{pm.slug}_videotrack.mp4",
-                                       mime="video/mp4", key="sw_dl_track")
+                vt_mb = round(videotrack.stat().st_size / (1024 * 1024), 1)
+                st.markdown(f"#### 🎥 Готовый видеоряд без озвучки (`{vt_mb} MB`):")
+                st.caption(f"📁 `{videotrack.resolve()}`")
+                if vt_mb <= 40 or st.checkbox("▶️ Показать плеер видеоряда", value=False, key="show_vt_player"):
+                    st.video(str(videotrack))
+                    with open(videotrack, "rb") as vf:
+                        st.download_button("⬇️ Скачать видеоряд (MP4)", data=vf,
+                                           file_name=f"{pm.slug}_videotrack.mp4",
+                                           mime="video/mp4", key="sw_dl_track")
 
     st.divider()
 
@@ -1281,9 +1287,9 @@ with tab_stepwise:
         if not step2_done:
             st.warning("Сначала выполните Шаг 2: отрендерите видеоряд.")
         else:
-            st.info("Видеоряд готов. Теперь добавьте озвучку — автоматически или своим файлом.")
             videotrack_sw = pm.project_dir / "render" / "videotrack.mp4"
-            st.video(str(videotrack_sw))
+            vt_sw_mb = round(videotrack_sw.stat().st_size / (1024 * 1024), 1) if videotrack_sw.exists() else 0
+            st.info(f"Видеоряд готов (`{vt_sw_mb} MB`). Теперь добавьте озвучку — автоматически или своим файлом.")
 
             audio_mode_sw = st.radio("Способ озвучки:", [
                 "🤖 Auto TTS (синтез голоса Gemini/Edge)",
@@ -1426,13 +1432,16 @@ with tab_stepwise:
     # Блок готового финального видео
     final_sw = pm.project_dir / "final_video.mp4"
     if final_sw.exists() and final_sw.stat().st_size > 10000:
+        fsw_mb = round(final_sw.stat().st_size / (1024 * 1024), 1)
         st.divider()
-        st.subheader("🎉 Финальное видео готово!")
-        st.video(str(final_sw))
-        with open(final_sw, "rb") as fvf:
-            st.download_button("⬇️ Скачать финальное видео (MP4)", data=fvf,
-                               file_name=f"{pm.slug}_final.mp4", mime="video/mp4",
-                               type="primary", use_container_width=True, key="sw_dl_final")
+        st.subheader(f"🎉 Финальное видео готово! (`{fsw_mb} MB`)")
+        st.caption(f"📁 Файл на диске: `{final_sw.resolve()}`")
+        if fsw_mb <= 40 or st.checkbox("▶️ Показать плеер и кнопку скачивания", value=False, key="show_sw_final_player"):
+            st.video(str(final_sw))
+            with open(final_sw, "rb") as fvf:
+                st.download_button("⬇️ Скачать финальное видео (MP4)", data=fvf,
+                                   file_name=f"{pm.slug}_final.mp4", mime="video/mp4",
+                                   type="primary", use_container_width=True, key="sw_dl_final")
 
 # Вкладка 1: Сценарий
 with tab_script:
