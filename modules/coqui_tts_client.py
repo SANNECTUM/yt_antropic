@@ -278,21 +278,18 @@ class CoquiTTSClient:
             "-i", str(concat_list),
         ]
         if studio_mastering:
-            # Чистая студийная обработка дикторского голоса:
-            # 1) afftdn — убирает фоновый шум/шипение вокодера
-            # 2) highpass=85 / lowpass=10500 — отсекает гул и высокочастотный «песок» XTTS
-            # 3) equalizer — убирает резкие «с/ш» (6.5 кГц), добавляет мягкий бархатный бас (140 Гц) и разборчивость (2.8 кГц)
-            # 4) agate — делает паузы между фразами идеально тихими
-            # 5) acompressor + loudnorm — ровная дикторская подача под стандарт YouTube (-16 LUFS)
+            # Прозрачный мастеринг под студийный конденсаторный микрофон (без «эффекта бочки»):
+            # 1) highpass=100 — чистый собранный низ без гула
+            # 2) -4 dB на 320 Гц — полностью убирает «коробочный / бочковой» резонанс
+            # 3) +2.5 dB на 3.5 кГц и +2.5 dB на 8.5 кГц — открытый студийный «воздух» и чёткость
+            # 4) мягкий гейт пауз + прозрачный компрессор + стандарт громкости YouTube (-16 LUFS)
             af_chain = (
-                "afftdn=nf=-28:nt=w,"
-                "highpass=f=85,"
-                "lowpass=f=10500,"
-                "equalizer=f=6500:t=q:w=2.0:g=-2.5,"
-                "equalizer=f=140:t=q:w=1.2:g=2.2,"
-                "equalizer=f=2800:t=q:w=1.4:g=1.5,"
-                "agate=threshold=0.012:ratio=2.5:attack=10:release=150,"
-                "acompressor=threshold=-20dB:ratio=2.5:attack=15:release=150:makeup=1.5,"
+                "highpass=f=100,"
+                "equalizer=f=320:t=q:w=1.2:g=-4.0,"
+                "equalizer=f=3500:t=q:w=1.5:g=2.5,"
+                "treble=g=2.5:f=8500,"
+                "agate=threshold=0.010:ratio=2.2:attack=10:release=140,"
+                "acompressor=threshold=-20dB:ratio=2.2:attack=15:release=140:makeup=1.5,"
                 "loudnorm=I=-16:TP=-1.5:LRA=11"
             )
             cmd.extend(["-af", af_chain])
