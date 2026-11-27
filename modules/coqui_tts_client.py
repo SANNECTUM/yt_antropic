@@ -278,18 +278,19 @@ class CoquiTTSClient:
             "-i", str(concat_list),
         ]
         if studio_mastering:
-            # Прозрачный мастеринг под студийный конденсаторный микрофон (без «эффекта бочки»):
-            # 1) highpass=100 — чистый собранный низ без гула
-            # 2) -4 dB на 320 Гц — полностью убирает «коробочный / бочковой» резонанс
-            # 3) +2.5 dB на 3.5 кГц и +2.5 dB на 8.5 кГц — открытый студийный «воздух» и чёткость
-            # 4) мягкий гейт пауз + прозрачный компрессор + стандарт громкости YouTube (-16 LUFS)
+            # Чистый студийный мастеринг для F5-TTS (без шипений и без «эффекта бочки»):
+            # 1) мягкий шумодав (nr=8 — убирает только лёгкое шипение вокодера без искажения тембра)
+            # 2) highpass=90 + lowpass=11000 — чистый низ и срез ультравысокого шипения
+            # 3) -2.5 dB на 300 Гц (убирает бубнёж) и -3.0 dB на 6.8 кГц (смягчает шипящие с/ш)
+            # 4) гейт тишины в паузах + мягкий компрессор + громкость YouTube (-16 LUFS)
             af_chain = (
-                "highpass=f=100,"
-                "equalizer=f=320:t=q:w=1.2:g=-4.0,"
-                "equalizer=f=3500:t=q:w=1.5:g=2.5,"
-                "treble=g=2.5:f=8500,"
-                "agate=threshold=0.010:ratio=2.2:attack=10:release=140,"
-                "acompressor=threshold=-20dB:ratio=2.2:attack=15:release=140:makeup=1.5,"
+                "afftdn=nf=-36:nr=8:nt=w,"
+                "highpass=f=90,"
+                "lowpass=f=11000,"
+                "equalizer=f=300:t=q:w=1.2:g=-2.5,"
+                "equalizer=f=6800:t=q:w=1.8:g=-3.0,"
+                "agate=threshold=0.012:ratio=2.5:attack=10:release=140,"
+                "acompressor=threshold=-20dB:ratio=2.0:attack=15:release=150:makeup=1.0,"
                 "loudnorm=I=-16:TP=-1.5:LRA=11"
             )
             cmd.extend(["-af", af_chain])
