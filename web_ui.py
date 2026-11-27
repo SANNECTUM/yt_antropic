@@ -203,8 +203,8 @@ with tab_autopilot:
                 with c_vc:
                     if "Coqui" in pipeline_engine:
                         engine_code = "coqui"
-                        voice_id = "dmitry_narrator.wav"
-                        st.caption("🎙️ Клонирование голоса на RTX 4060 Ti")
+                        voice_id = "milo_confident_narrator.wav"
+                        st.caption("🎙️ Студийный диктор на RTX 4060 Ti (milo_confident_narrator)")
                     elif "Edge" in pipeline_engine:
                         pipeline_voice = st.selectbox("Голос:", ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"], index=0, key="auto_edge_v")
                         voice_id = "ru-RU-DmitryNeural" if "Dmitry" in pipeline_voice else "ru-RU-SvetlanaNeural"
