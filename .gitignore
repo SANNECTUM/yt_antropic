@@ -55,3 +55,6 @@ projects/**/*.mp4
 !projects/anxiety/visuals/scene_003.mp4
 !projects/anxiety/visuals/scene_004.mp4
 !projects/anxiety/visuals/scene_005.mp4
+
+# Keep personal voice samples private locally
+assets/voices/david*

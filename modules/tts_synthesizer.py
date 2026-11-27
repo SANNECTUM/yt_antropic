@@ -44,7 +44,7 @@ class TTSSynthesizer:
             self.concurrency = concurrency if concurrency is not None else kwargs.get("concurrency", 2)
             self.chunk_size = chunk_size if chunk_size is not None else kwargs.get("chunk_size", 2500)
         elif self.engine == "coqui":
-            self.voice = voice or "milo_confident_narrator.wav"
+            self.voice = voice or "david_studio.wav"
             self.style = "documentary"
             self.concurrency = 1
             self.chunk_size = chunk_size or 220

@@ -68,17 +68,40 @@ with st.sidebar:
     project_mode = st.radio("Действие", ["Выбрать существующий", "Создать новый"], index=0 if projects else 1)
     
     if project_mode == "Создать новый" or not projects:
-        new_project_name = st.text_input("Название нового проекта", placeholder="например, cold_cases_alibi")
+        new_project_name = st.text_input("Название нового проекта", placeholder="например, silmarillion_first_age")
+        new_type_label = st.radio(
+            "Формат проекта:",
+            ["🔍 Психология и расследования", "🌙 Длинные истории на ночь (Sleep Lore)"],
+            index=0,
+            key="new_proj_type_radio"
+        )
+        new_p_type = "sleep_lore" if "Sleep Lore" in new_type_label else "psychology_crime"
+
         if st.button("Создать проект", width="stretch") and new_project_name.strip():
             pm = ProjectManager(new_project_name.strip())
-            st.success(f"Проект {pm.slug} создан!")
+            pm.set_project_type(new_p_type)
+            st.success(f"Проект {pm.slug} ({new_type_label}) создан!")
             st.rerun()
         current_project = new_project_name.strip() if new_project_name.strip() else (projects[0] if projects else "default")
         pm = ProjectManager(current_project)
     else:
         selected_slug = st.selectbox("Текущий проект", projects, index=0)
         pm = ProjectManager(selected_slug)
-        st.info(f"Папка проекта: `{pm.project_dir.name}`")
+        curr_p_type = pm.get_project_type()
+        curr_label = "🌙 Длинные истории на ночь (Sleep Lore)" if curr_p_type == "sleep_lore" else "🔍 Психология и расследования"
+        st.info(f"Папка: `{pm.project_dir.name}`\n\nФормат: **{curr_label}**")
+
+        with st.expander("⚙️ Сменить формат проекта"):
+            target_type_label = st.radio(
+                "Выбрать формат:",
+                ["🔍 Психология и расследования", "🌙 Длинные истории на ночь (Sleep Lore)"],
+                index=1 if curr_p_type == "sleep_lore" else 0,
+                key="switch_proj_type_sidebar"
+            )
+            if st.button("Применить формат", key="apply_proj_type_btn"):
+                pm.set_project_type("sleep_lore" if "Sleep Lore" in target_type_label else "psychology_crime")
+                st.success("Формат проекта обновлен!")
+                st.rerun()
 
     st.divider()
     st.header("⚡ Google Gemini API")
@@ -124,6 +147,13 @@ with st.sidebar:
         model_name = st.text_input("Введите точное имя модели", value="gemini-3.5-flash-lite")
     else:
         model_name = selected_option
+
+# Проверяем тип проекта: если Sleep Lore — отображаем специализированный интерфейс для длинных видео
+project_type = pm.get_project_type()
+if project_type == "sleep_lore":
+    from modules.ui_sleep_lore import render_sleep_lore_interface
+    render_sleep_lore_interface(pm, model_name)
+    st.stop()
 
 tab_autopilot, tab_stepwise, tab_script, tab_prompts, tab_tts, tab_thumbnails, tab_files = st.tabs([
     "🚀 0. Автопилот (1 клик)",
@@ -203,8 +233,8 @@ with tab_autopilot:
                 with c_vc:
                     if "Coqui" in pipeline_engine:
                         engine_code = "coqui"
-                        voice_id = "milo_confident_narrator.wav"
-                        st.caption("🎙️ Студийный диктор на RTX 4060 Ti (milo_confident_narrator)")
+                        voice_id = "david_studio.wav"
+                        st.caption("🎙️ Ваш студийный голос на RTX 4060 Ti (david_studio)")
                     elif "Edge" in pipeline_engine:
                         pipeline_voice = st.selectbox("Голос:", ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"], index=0, key="auto_edge_v")
                         voice_id = "ru-RU-DmitryNeural" if "Dmitry" in pipeline_voice else "ru-RU-SvetlanaNeural"
