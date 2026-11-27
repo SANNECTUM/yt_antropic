@@ -278,27 +278,29 @@ class CoquiTTSClient:
             "-i", str(concat_list),
         ]
         if studio_mastering:
-            # Чистый студийный мастеринг для F5-TTS (без шипений и без «эффекта бочки»):
-            # 1) мягкий шумодав (nr=8 — убирает только лёгкое шипение вокодера без искажения тембра)
-            # 2) highpass=90 + lowpass=11000 — чистый низ и срез ультравысокого шипения
-            # 3) -2.5 dB на 300 Гц (убирает бубнёж) и -3.0 dB на 6.8 кГц (смягчает шипящие с/ш)
-            # 4) гейт тишины в паузах + мягкий компрессор + громкость YouTube (-16 LUFS)
+            # Стабильный студийный мастеринг для роликов любой длины (от 15 сек до 2 часов):
+            # Без 1-проходного loudnorm (который замыливает звук на длинных 40+ мин дорожках).
+            # 1) лёгкий шумодав nr=6 (убирает шипение, сохраняет резкость голоса)
+            # 2) highpass=90 + lowpass=11500 — чистый низ и срез ультравысокого песка
+            # 3) -2.5 dB @ 300Hz (убирает бубнёж), +1.5 dB @ 2.8kHz (чёткость речи), -2.5 dB @ 6.8kHz (мягкие с/ш)
+            # 4) гейт тишины + ровный компрессор + пиковый лимитер (одинаковая чёткость на всей длине видео)
             af_chain = (
-                "afftdn=nf=-36:nr=8:nt=w,"
+                "afftdn=nf=-38:nr=6:nt=w,"
                 "highpass=f=90,"
-                "lowpass=f=11000,"
+                "lowpass=f=11500,"
                 "equalizer=f=300:t=q:w=1.2:g=-2.5,"
-                "equalizer=f=6800:t=q:w=1.8:g=-3.0,"
-                "agate=threshold=0.012:ratio=2.5:attack=10:release=140,"
-                "acompressor=threshold=-20dB:ratio=2.0:attack=15:release=150:makeup=1.0,"
-                "loudnorm=I=-16:TP=-1.5:LRA=11"
+                "equalizer=f=2800:t=q:w=1.5:g=1.5,"
+                "equalizer=f=6800:t=q:w=1.8:g=-2.5,"
+                "agate=threshold=0.010:ratio=2.2:attack=10:release=140,"
+                "acompressor=threshold=-18dB:ratio=2.5:attack=12:release=140:makeup=3.0,"
+                "alimiter=limit=0.95:attack=5:release=50"
             )
             cmd.extend(["-af", af_chain])
 
         cmd.extend([
             "-ar", "44100",
             "-c:a", "libmp3lame" if output_path.suffix.lower() == ".mp3" else "pcm_s16le",
-            "-b:a", "192k",
+            "-b:a", "256k",
             str(output_path)
         ])
         subprocess.run(cmd, capture_output=True, errors="ignore")

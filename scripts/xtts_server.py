@@ -47,6 +47,37 @@ _ENGINE_NAME = "f5_tts_russian_v4"
 _DEVICE = "cpu"
 _LOAD_ERROR = None
 _REF_TEXT_CACHE = {}
+_ACCENTIZER = None
+
+
+def get_accentizer():
+    """Ленивая загрузка нейросетевого расстановщика русских ударений (RUAccent)."""
+    global _ACCENTIZER
+    if _ACCENTIZER is not None:
+        return _ACCENTIZER
+    try:
+        from ruaccent import RUAccent
+        acc = RUAccent()
+        acc.load(omograph_model_size="turbo3.1", use_dictionary=True, tiny_mode=False)
+        _ACCENTIZER = acc
+        print("[+] Модуль русских ударений RUAccent (turbo3.1) успешно загружен!")
+        return _ACCENTIZER
+    except Exception as e:
+        print(f"[!] RUAccent недоступен ({e}), синтез пойдет без авто-ударений.")
+        return None
+
+
+def accentize_russian(text: str) -> str:
+    """Расставляет точные знаки ударений '+' и букву 'ё' для F5-TTS Russian."""
+    if not text or "+" in text:
+        return text
+    acc = get_accentizer()
+    if acc is None:
+        return text
+    try:
+        return acc.process_all(text)
+    except Exception:
+        return text
 
 
 def get_tts_model():
@@ -225,10 +256,11 @@ class XTTSRequestHandler(BaseHTTPRequestHandler):
 
                     if _ENGINE_NAME == "f5_tts_russian_v4":
                         ref_text = data.get("ref_text") or get_ref_text(speaker_wav)
+                        gen_text_ready = accentize_russian(text) if language == "ru" else text
                         model.infer(
                             ref_file=speaker_wav,
                             ref_text=ref_text,
-                            gen_text=text,
+                            gen_text=gen_text_ready,
                             nfe_step=int(data.get("nfe_step", 32)),
                             cfg_strength=float(data.get("cfg_strength", 2.0)),
                             speed=speed,
